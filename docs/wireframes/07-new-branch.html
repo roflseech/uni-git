@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>epic-git · 07 New branch</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="wire.css">
+</head><body>
+<div class="page">
+  <div class="crumbs"><a href="index.html">Вайрфреймы</a><span class="idx">07 / 11</span></div>
+  <h1>Создать ветку по шаблону</h1>
+  <p class="lead">Один диалог, но поля зависят от шаблона репозитория. Слева пресет Jira, в центре ClickUp, справа репозиторий без шаблона.</p>
+
+  <div class="stack">
+    <div class="dlg w440">
+      <div class="hd">New branch <span>clm-client · Jira</span></div>
+      <div class="bd"><div class="form">
+        <label>Type</label><div class="val">feature <span class="caret">▼</span></div>
+        <label>Name</label><div class="val">new-gang-grades</div>
+        <label>Task code</label><div class="val">OST-52990</div>
+        <label>Start from</label><div class="val">master <span class="caret">▼</span><span class="src"><span class="check"><i class="on"></i>fetch first</span></span></div>
+        <label>Result</label><div class="val ro mono">feature/new-gang-grades#OST-52990</div>
+        <label></label><div class="plain"><span class="check"><i class="on"></i>Check out after creating</span></div>
+      </div></div>
+      <div class="ft"><span class="btn">Cancel</span><span class="btn primary">Create branch</span></div>
+    </div>
+
+    <div class="dlg w440">
+      <div class="hd">New branch <span>epic-game · ClickUp</span></div>
+      <div class="bd"><div class="form">
+        <label>Name</label><div class="val">fish-weight</div>
+        <label>Task code</label><div class="val">869eu8fkw</div>
+        <label>Start from</label><div class="val">main <span class="caret">▼</span><span class="src"><span class="check"><i class="on"></i>fetch first</span></span></div>
+        <label>Result</label><div class="val ro mono">869eu8fkw_fish-weight</div>
+        <div class="hint">Commits on this branch get the prefix <span class="mono">[869eu8fkw]</span></div>
+        <label></label><div class="plain"><span class="check"><i class="on"></i>Check out after creating</span></div>
+      </div></div>
+      <div class="ft"><span class="btn">Cancel</span><span class="btn primary">Create branch</span></div>
+    </div>
+
+    <div class="dlg w440">
+      <div class="hd">New branch <span>epic-git · no template</span></div>
+      <div class="bd"><div class="form">
+        <label>Name</label><div class="val">wip/status-bar</div>
+        <label>Start from</label><div class="val">main <span class="caret">▼</span><span class="src"><span class="check"><i></i>fetch first</span></span></div>
+        <label></label><div class="plain"><span class="check"><i class="on"></i>Check out after creating</span></div>
+      </div></div>
+      <div class="ft"><span class="btn">Cancel</span><span class="btn primary">Create branch</span></div>
+    </div>
+  </div>
+  <div class="pager"><a href="06-repo-settings.html">← 06 Repo Settings</a><a href="08-conflicts.html">08 Conflicts →</a></div>
+</div>
+</body></html>

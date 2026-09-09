@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>epic-git · 02 Commits</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="wire.css">
+</head><body>
+<div class="page">
+  <div class="crumbs"><a href="index.html">Вайрфреймы</a><span class="idx">02 / 11</span></div>
+  <h1>Главное окно, вид Commits</h1>
+  <p class="lead">Одна линия и только текущая ветка. Графа всех веток нет. Фильтр по тексту и автору стоит над списком.</p>
+
+  <div class="stage"><div class="win h">
+    <div class="title">epic-git — clm-client <span class="path">D:\Work\clm-client</span></div>
+    <div class="toolbar">
+      <span class="btn">Repositories <span class="caret">▼</span></span><span class="btn">Repo Settings</span><span class="btn">Global Settings</span>
+      <span class="gap"></span>
+      <span class="btn">Fetch</span><span class="btn">Pull</span><span class="btn">Push <span class="count">↑1</span></span><span class="btn primary">Commit</span><span class="btn">Merge <span class="caret">▼</span></span>
+      <span class="gap"></span><span class="btn">Open in Code <span class="caret">▼</span></span>
+      <div class="branch"><span class="ref head">HEAD</span><span class="name">master</span></div>
+    </div>
+    <div class="layout">
+      <div class="side">
+        <div class="seg"><div>Changes 6</div><div class="on">Commits</div></div>
+        <div class="field">Filter</div>
+        <ul class="tree">
+          <li class="head"><span>Branches</span></li>
+          <li class="d1"><span>▸ feature</span></li>
+          <li class="d1"><span>▸ fix</span></li>
+          <li class="d1"><span>▸ playtest</span></li>
+          <li class="d1 cur"><span>✓ master</span><span class="ab">↑1 ↓106</span></li>
+          <li class="d1"><span>rc-1.1</span></li>
+          <li class="head"><span>Remotes</span></li>
+          <li class="d1"><span>▸ origin</span></li>
+          <li class="head"><span>Tags</span></li>
+          <li class="d1"><span>▸ 12 tags</span></li>
+          <li class="head"><span>Stashes</span></li>
+          <li class="d1"><span>test logs</span></li>
+        </ul>
+      </div>
+      <div class="main" style="grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)">
+        <div class="col">
+          <div class="filterbar"><div class="field">Search in messages</div><div class="field" style="flex:0 0 150px">Author</div><span class="check"><i></i>Only mine</span><span class="mark">1</span></div>
+          <ul class="commits">
+            <li><span class="dot"></span><span class="msg"><span class="ref head">master</span><span class="ref">origin/master</span><span class="t">Merge branch 'fix/vehicle-reward-amount#OST-21800' into 'master'</span></span><span class="au">Mikhail Senyushkin</span><span class="sha">6b4e53d</span><span class="dt num">9 Sep 16:06</span></li>
+            <li class="sel"><span class="dot"></span><span class="msg"><span class="t">Merge branch 'a.kor/bugfix/notifforshopitems#6827134' into 'master'</span></span><span class="au">Mikhail Senyushkin</span><span class="sha">07e85a4</span><span class="dt num">9 Sep 16:04</span></li>
+            <li><span class="dot"></span><span class="msg"><span class="t">Merge branch 'master' into 'fix/ta/bch_broadside850#OST-52993'</span></span><span class="au">auto-mr-token</span><span class="sha">82d37b4</span><span class="dt num">9 Sep 16:03</span></li>
+            <li><span class="dot"></span><span class="msg"><span class="ref">android-19808</span><span class="t">Merge branch 'master' into 'fix/crash-fmod#OST-21019'</span></span><span class="au">auto-mr-token</span><span class="sha">786b529</span><span class="dt num">9 Sep 15:53</span></li>
+            <li><span class="dot"></span><span class="msg"><span class="t">fix reward amount for vehicles</span><span class="tagchip">OST-21800 ↗</span><span class="mark">2</span></span><span class="au">Mikhail Senyushkin</span><span class="sha">a02e622</span><span class="dt num">9 Sep 15:40</span></li>
+            <li><span class="dot"></span><span class="msg"><span class="t">navigate catch fish weight task to nearest fishing spot</span></span><span class="au">d.savkin</span><span class="sha">a3f2505</span><span class="dt num">9 Sep 15:29</span></li>
+            <li><span class="dot"></span><span class="msg"><span class="t">Fixed possible InvalidHasOperationException in PedViewUpdateAimInputFromCameraSystem</span></span><span class="au">Nikita Pogodich</span><span class="sha">9aeb64b</span><span class="dt num">9 Sep 15:26</span></li>
+            <li><span class="dot"></span><span class="msg"><span class="t">rules pop up description from config</span></span><span class="au">Andrei Chistikhin</span><span class="sha">d3a1561</span><span class="dt num">9 Sep 15:06</span></li>
+            <li><span class="dot"></span><span class="more">Older commits load on scroll <span class="mark">3</span></span></li>
+          </ul>
+        </div>
+        <div class="col">
+          <dl class="details">
+            <dt>Author</dt><dd>Mikhail Senyushkin <span class="mono" style="color:var(--ink-3)">m.senyushkin@chillgaming.net</span></dd>
+            <dt>Date</dt><dd class="num">9 Sep 2026 16:04:12 +03:00</dd>
+            <dt>SHA</dt><dd class="mono">07e85a4c2f9b1e0d… <span class="btn small">copy</span></dd>
+            <dt>Parents</dt><dd class="mono">82d37b4 · 3f9a1c0</dd>
+            <dt>In branches</dt><dd>master, rc-1.1, origin/master <span class="mark">4</span></dd>
+          </dl>
+          <div class="subject">Merge branch 'a.kor/bugfix/notifforshopitems#6827134' into 'master'</div>
+          <ul class="files">
+            <li><span class="flag m">M</span><span class="name">Assets/dev/Scripts/Shop/ShopNotifications.cs</span></li>
+            <li><span class="flag m">M</span><span class="name">Assets/Prefabs/gui/shop/shop_badge.prefab</span><span class="tagchip">tree</span></li>
+            <li class="sel"><span class="flag a">A</span><span class="name">Assets/dev/Scripts/Shop/ShopBadgeSystem.cs</span></li>
+          </ul>
+          <div class="diff inline" style="border-top:1px solid var(--line-soft)">
+            <div class="hunk">@@ -12,6 +12,9 @@ public sealed class ShopBadgeSystem</div>
+            <div class="ln"><div class="n">12</div><div class="n">12</div><div>    public void OnAwake()</div></div>
+            <div class="ln"><div class="n">13</div><div class="n"></div><div class="del">        _filter = World.Filter.With&lt;Shop&gt;();</div></div>
+            <div class="ln"><div class="n"></div><div class="n">13</div><div class="add">        _filter = World.Filter.With&lt;Shop&gt;().With&lt;Badge&gt;();</div></div>
+            <div class="ln"><div class="n"></div><div class="n">14</div><div class="add">        _badges.Clear();</div></div>
+            <div class="ln"><div class="n">14</div><div class="n">15</div><div>    }</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <ul class="notes">
+    <li><span class="mark">1</span>Фильтр по тексту сообщения, автору и «только мои». По загруженному списку работает мгновенно, дальше уходит в git log.</li>
+    <li><span class="mark">2</span>Коды задач в сообщениях кликабельны, если у репозитория задан шаблон.</li>
+    <li><span class="mark">3</span>История подгружается при прокрутке, не вся сразу.</li>
+    <li><span class="mark">4</span>Ответ на «в каких ветках есть этот коммит» показывается в деталях без отдельного действия.</li>
+  </ul>
+  <div class="pager"><a href="01-changes.html">← 01 Changes</a><a href="03-repositories.html">03 Repositories →</a></div>
+</div>
+</body></html>

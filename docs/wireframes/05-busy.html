@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>epic-git · 05 Busy repository</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="wire.css">
+</head><body>
+<div class="page">
+  <div class="crumbs"><a href="index.html">Вайрфреймы</a><span class="idx">05 / 11</span></div>
+  <h1>Занятый репозиторий</h1>
+  <p class="lead">Идёт «Merge into main». Все действия над этим репозиторием отключены, но переключение на другой репозиторий свободно и никаких модальных окон нет.</p>
+
+  <div class="stage"><div class="win" style="height:420px">
+    <div class="title">epic-git — clm-client <span class="path">D:\Work\clm-client</span></div>
+    <div class="toolbar">
+      <span class="btn">Repositories <span class="caret">▼</span><span class="mark">1</span></span><span class="btn off">Repo Settings</span><span class="btn">Global Settings</span>
+      <span class="gap"></span>
+      <span class="btn off">Fetch</span><span class="btn off">Pull</span><span class="btn off">Push</span><span class="btn off">Commit</span><span class="btn off">Merge <span class="caret">▼</span></span>
+      <span class="gap"></span><span class="btn">Open in Code <span class="caret">▼</span></span>
+      <div class="branch"><span class="ref head">HEAD</span><span class="name">master</span></div>
+    </div>
+    <div class="ops">
+      <span class="job"><span class="spin"></span><b>clm-client</b> merge into main · step 3 of 4: merge feature/super-seasons#OST-53176 · 8 s <a>log</a> <a>cancel</a><span class="mark">2</span></span>
+    </div>
+    <div class="layout">
+      <div class="side">
+        <div class="seg"><div class="on">Changes</div><div>Commits</div></div>
+        <div class="field">Filter</div>
+        <ul class="tree">
+          <li class="head"><span>Branches</span></li>
+          <li class="d1 cur"><span>✓ master</span></li>
+          <li class="d1"><span>feature/super-seasons#OST-53176</span></li>
+          <li class="d1"><span>rc-1.1</span></li>
+        </ul>
+      </div>
+      <div class="main single">
+        <div class="col">
+          <div class="banner"><span class="spin"></span><span>Repository is busy: merge into main. Data below may be stale and actions are unavailable until it finishes. You can switch to another repository meanwhile.</span><span class="mark">3</span></div>
+          <div class="colhead" style="opacity:.55">Unstaged 0</div>
+          <ul class="files" style="opacity:.55"><li><span class="name" style="color:var(--ink-3)">No local changes</span></li></ul>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <ul class="notes">
+    <li><span class="mark">1</span>Единственная активная кнопка панели помимо Global Settings и Open in Code.</li>
+    <li><span class="mark">2</span>Составные операции показывают шаг. Отмена останавливает текущую git-команду и откатывает начатый merge.</li>
+    <li><span class="mark">3</span>Баннер живёт внутри содержимого и исчезает сам, когда операция завершена.</li>
+  </ul>
+  <div class="pager"><a href="04-merge.html">← 04 Merge</a><a href="06-repo-settings.html">06 Repo Settings →</a></div>
+</div>
+</body></html>

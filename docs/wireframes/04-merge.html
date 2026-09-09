@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>epic-git · 04 Merge</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="wire.css">
+</head><body>
+<div class="page">
+  <div class="crumbs"><a href="index.html">Вайрфреймы</a><span class="idx">04 / 11</span></div>
+  <h1>Меню Merge и Open in Code</h1>
+  <p class="lead">Main-ветка берётся из настроек репозитория. Каждый пункт объясняет, что именно произойдёт, чтобы не держать это в голове.</p>
+
+  <div class="stack">
+    <div class="menu" style="width:400px">
+      <div class="group"><span>Merge</span><span class="meta">main = master</span></div>
+      <div class="item"><span class="lbl">Merge main</span></div>
+      <div class="desc">git merge master → feature/super-seasons#OST-53176. Локальный master как есть.</div>
+      <div class="item"><span class="lbl">Force merge actual main</span></div>
+      <div class="desc">git fetch origin master:master, затем merge master → текущая. Локальный master догоняет origin без переключения. Это «проактуализировать мастером».</div>
+      <div class="item"><span class="lbl">Merge into main</span></div>
+      <div class="desc">switch master → pull → merge feature/super-seasons#OST-53176 → push. Остаёмся на master. При конфликте push не выполняется.</div>
+      <div class="sep"></div>
+      <div class="item"><span class="check"><i class="on"></i>Stash uncommitted changes before, restore after</span></div>
+    </div>
+    <div class="menu" style="width:300px">
+      <div class="group"><span>Open in Code</span></div>
+      <div class="item"><span class="lbl">Open repository</span><span class="meta">clm-client</span></div>
+      <div class="item"><span class="lbl">Open group folder</span><span class="meta">D:\Work</span></div>
+      <div class="desc">Второй пункт есть только у группы-папки. Команда редактора задаётся в Global Settings.</div>
+    </div>
+  </div>
+  <div class="pager"><a href="03-repositories.html">← 03 Repositories</a><a href="05-busy.html">05 Busy repo →</a></div>
+</div>
+</body></html>

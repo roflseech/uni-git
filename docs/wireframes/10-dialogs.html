@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>epic-git · 10 Dialogs</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="wire.css">
+</head><body>
+<div class="page">
+  <div class="crumbs"><a href="index.html">Вайрфреймы</a><span class="idx">10 / 11</span></div>
+  <h1>Add group, Clone, Askpass</h1>
+  <p class="lead">Три небольших диалога. Askpass появляется вместо зависшего терминала, когда git просит пароль или подтверждение хоста.</p>
+
+  <div class="stack">
+    <div class="dlg w480">
+      <div class="hd">Add group from folder</div>
+      <div class="bd"><div class="form">
+        <label>Folder</label><div class="val mono">D:\Work<span class="src"><span class="btn small">Browse</span></span></div>
+        <label>Name</label><div class="val">Work</div>
+        <label>Found, depth 1</label><div class="plain">
+          <span class="check"><i class="on"></i>clm-client</span>
+          <span class="check"><i class="on"></i>other-repo</span>
+          <span class="check"><i class="on"></i>tools</span>
+          <span class="check"><i></i>old-prototype <span style="color:var(--ink-3)">hidden</span></span>
+        </div>
+        <div class="hint">Only direct subfolders are scanned: Root/Repo1 is found, Root/Repo1/Repo2 is not.</div>
+      </div></div>
+      <div class="ft"><span class="btn">Cancel</span><span class="btn primary">Add group</span></div>
+    </div>
+
+    <div class="dlg w480">
+      <div class="hd">Clone repository</div>
+      <div class="bd"><div class="form">
+        <label>URL</label><div class="val mono">git@gitlab.chillgaming.net:clm/tools.git</div>
+        <label>Into group</label><div class="val">Work <span class="caret">▼</span></div>
+        <label>Destination</label><div class="val mono">D:\Work\tools</div>
+        <div class="hint">Defaults to the group folder root.</div>
+        <label></label><div class="plain"><span class="check"><i></i>Recurse submodules</span></div>
+      </div></div>
+      <div class="ft"><span class="btn">Cancel</span><span class="btn primary">Clone</span></div>
+    </div>
+
+    <div class="dlg w480">
+      <div class="hd">clm-client <span>push needs your input</span></div>
+      <div class="bd">
+        <div>The authenticity of host <span class="mono">gitlab.chillgaming.net</span> can't be established.<br>ED25519 fingerprint <span class="mono">SHA256:7dQ9…Lm4</span></div>
+        <span class="check"><i class="on"></i>Remember this host</span>
+      </div>
+      <div class="ft"><span class="btn">Cancel push</span><span class="btn primary">Trust and continue</span></div>
+    </div>
+  </div>
+  <div class="pager"><a href="09-global-settings.html">← 09 Global Settings</a><a href="11-context-menus.html">11 Context menus →</a></div>
+</div>
+</body></html>

@@ -1,0 +1,29 @@
+/* Placeholder styling for the empty shell. The real design system comes with stage 1 (see docs/wireframes). */
+:root {
+  --ground: #edeff2;
+  --paper: #ffffff;
+  --ink: #1b1f27;
+  --ink-2: #5c6573;
+  --accent: #0f766e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #14171c;
+    --paper: #1d2129;
+    --ink: #e6e9ee;
+    --ink-2: #a6aeba;
+    --accent: #4fb3a8;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font: 14px/1.5 system-ui, "Segoe UI", sans-serif;
+  display: grid;
+  place-items: center;
+}
+.shell { text-align: center; color: var(--ink-2); }
+.shell h1 { font-size: 18px; font-weight: 600; color: var(--ink); margin: 0 0 6px; }
+.shell code { color: var(--accent); }

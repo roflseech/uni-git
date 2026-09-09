@@ -1,0 +1,29 @@
+{
+  "name": "epic-git",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Fast-starting cross-platform Git client: Neutralino shell + Node/TS backend + TS frontend",
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "setup": "npm install && npm run neu:update",
+    "neu:update": "cd app && neu update",
+    "neu:run": "cd app && neu run",
+    "neu:build": "cd app && neu build",
+    "build": "npm run build -w shared && npm run build -w backend && npm run build -w frontend",
+    "dev": "npm run build -w shared && concurrently -k -n frontend,backend,app \"npm run dev -w frontend\" \"npm run dev -w backend\" \"npm run neu:run\"",
+    "dist": "npm run build && npm run neu:build",
+    "typecheck": "tsc -b shared backend frontend"
+  },
+  "devDependencies": {
+    "@neutralinojs/neu": "^11.0.0",
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

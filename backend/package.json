@@ -1,0 +1,21 @@
+{
+  "name": "@epic-git/backend",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -b",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@epic-git/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

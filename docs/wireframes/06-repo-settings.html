@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>epic-git · 06 Repo Settings</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="wire.css">
+</head><body>
+<div class="page">
+  <div class="crumbs"><a href="index.html">Вайрфреймы</a><span class="idx">06 / 11</span></div>
+  <h1>Repo Settings</h1>
+  <p class="lead">Всё, что относится к одному репозиторию. Имя и email читаются из git config и туда же пишутся, остальное хранится в data/ рядом с приложением.</p>
+
+  <div class="stack">
+    <div class="dlg">
+      <div class="hd">Repo Settings <span>clm-client</span></div>
+      <div class="tabs"><div class="on">General</div><div>Task template</div><div>Authentication</div></div>
+      <div class="bd"><div class="form">
+        <label>Path</label><div class="val ro mono">D:\Work\clm-client</div>
+        <label>Group</label><div class="val">Work <span class="caret">▼</span></div>
+        <label>Main branch</label><div class="val">master <span class="caret">▼</span></div>
+        <div class="hint">Used by the Merge menu and the ahead/behind counter. Detected automatically.</div>
+        <label>user.name</label><div class="val">Andrei Chistikhin <span class="src">from local</span><span class="mark">1</span></div>
+        <label>user.email</label><div class="val">a.chistikhin@chillgaming.net <span class="src">from global</span></div>
+        <div class="hint">Saved into .git/config of this repository. Profiles: <span class="tagchip">work</span> <span class="tagchip">personal</span></div>
+        <label>Unity</label><div class="val"><span class="check"><i class="on"></i>Use UnityYAMLMerge for .unity, .prefab, .asset</span></div>
+        <div class="hint">Writes the merge driver into .gitattributes and .git/config after confirmation.</div>
+      </div></div>
+      <div class="ft"><span class="btn">Cancel</span><span class="btn primary">Save</span></div>
+    </div>
+
+    <div class="dlg">
+      <div class="hd">Repo Settings <span>clm-client</span></div>
+      <div class="tabs"><div>General</div><div class="on">Task template</div><div>Authentication</div></div>
+      <div class="bd"><div class="form">
+        <label>Preset</label><div class="val">Jira <span class="caret">▼</span><span class="src">None · Jira · ClickUp · Custom</span><span class="mark">2</span></div>
+        <label>Task code pattern</label><div class="val mono">[A-Z]+-\d+</div>
+        <label>Branch types</label><div class="val mono">feature, fix</div>
+        <label>Branch name</label><div class="val mono">{type}/{name}#{code}</div>
+        <label>Commit message</label><div class="val mono" style="color:var(--ink-3)">empty, commits stay unmarked</div>
+        <label>Task link</label><div class="val mono">https://chillgamingg.atlassian.net/browse/{code}</div>
+        <label>Preview</label><div class="val ro"><span class="mono">feature/new-gang-grades#OST-52990</span><span class="src">…/browse/OST-52990</span><span class="mark">3</span></div>
+        <label></label><div class="inlinebtns"><span class="btn small">Save as preset</span></div>
+      </div></div>
+      <div class="ft"><span class="btn">Cancel</span><span class="btn primary">Save</span></div>
+    </div>
+  </div>
+
+  <ul class="notes">
+    <li><span class="mark">1</span>Пометка, откуда взято значение: local, global или includeIf. Сразу видно, почему коммиты уходят не от того имени.</li>
+    <li><span class="mark">2</span>None выключает всё: обычное поле имени ветки, никаких префиксов и ссылок. Custom открывает поля для правки.</li>
+    <li><span class="mark">3</span>Предпросмотр пересчитывается при каждой правке шаблона.</li>
+  </ul>
+  <div class="pager"><a href="05-busy.html">← 05 Busy repo</a><a href="07-new-branch.html">07 New branch →</a></div>
+</div>
+</body></html>

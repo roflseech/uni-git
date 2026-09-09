@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>epic-git · 08 Conflicts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="wire.css">
+</head><body>
+<div class="page">
+  <div class="crumbs"><a href="index.html">Вайрфреймы</a><span class="idx">08 / 11</span></div>
+  <h1>Конфликты и дерево префаба</h1>
+  <p class="lead">Во время merge в Changes появляется секция Conflicts. Для префаба вместо текста показывается дерево объектов, а конфликт описан по свойствам.</p>
+
+  <div class="stage"><div class="win h">
+    <div class="title">epic-git — clm-client <span class="path">D:\Work\clm-client</span></div>
+    <div class="toolbar">
+      <span class="btn">Repositories <span class="caret">▼</span></span><span class="btn">Repo Settings</span><span class="btn">Global Settings</span>
+      <span class="gap"></span>
+      <span class="btn off">Fetch</span><span class="btn off">Pull</span><span class="btn off">Push</span><span class="btn primary">Commit merge</span><span class="btn">Abort merge</span><span class="mark">1</span>
+      <span class="gap"></span><span class="btn">Open in Code <span class="caret">▼</span></span>
+      <div class="branch"><span class="ref bad">MERGING master</span><span class="name">feature/super-seasons#OST-53176</span></div>
+    </div>
+    <div class="layout">
+      <div class="side">
+        <div class="seg"><div class="on">Changes 3</div><div>Commits</div></div>
+        <div class="field">Filter</div>
+        <ul class="tree">
+          <li class="head"><span>Branches</span></li>
+          <li class="d1 cur"><span>✓ feature/super-seasons#OST-53176</span></li>
+          <li class="d1"><span>master</span></li>
+          <li class="d1"><span>rc-1.1</span></li>
+        </ul>
+      </div>
+      <div class="main">
+        <div class="col">
+          <div class="colhead" style="color:var(--bad)">Conflicts 2 <span class="tools"><span class="btn small">Take ours</span><span class="btn small">Take theirs</span></span></div>
+          <ul class="files">
+            <li class="sel"><span class="flag c">!</span><span class="name">Assets/Prefabs/gui/screens/leaderboards/superSeasons/leaderboard_rules_popup.prefab</span><span class="tagchip">1 conflict left</span><span class="mark">2</span></li>
+            <li><span class="flag c">!</span><span class="name">Assets/dev/Scripts/ECS/Morpeh/Features/LeaderboardsHubFeature/Datagrams/LeaderboardsHubRulesPopupData.cs</span></li>
+          </ul>
+          <div class="colhead">Staged 1 <span class="tools"><span class="btn small">Unstage all</span></span></div>
+          <ul class="files">
+            <li><span class="flag m">M</span><span class="name">Assets/dev/Scripts/ECS/Morpeh/Features/LeaderboardsHubFeature/Systems/RulesPopupSystem.cs</span><span class="note">auto-merged</span></li>
+          </ul>
+        </div>
+        <div class="col">
+          <div class="colhead"><span class="file">leaderboard_rules_popup.prefab</span><span class="tools"><span class="btn small primary">Tree</span><span class="btn small">Text</span></span></div>
+          <div class="unity">
+            <div><span class="name">▾ leaderboard_rules_popup</span><span class="pill ours">2 ours</span><span class="pill theirs">1 theirs</span><span class="pill conf">1 conflict</span></div>
+            <div class="d1"><span class="name">▾ Header</span></div>
+            <div class="d2"><span class="name">TextMeshProUGUI · title</span><span class="pill theirs">theirs</span></div>
+            <div class="d1"><span class="name">▾ Body</span></div>
+            <div class="d2 sel"><span class="name">▾ RulesText</span><span class="pill conf">conflict</span><span class="mark">3</span></div>
+            <div class="d3"><span class="name">RectTransform</span></div>
+            <div class="d3"><span class="name">LeaderboardsHubRulesPopupView (script)</span><span class="pill conf">conflict</span></div>
+            <div class="d1"><span class="name">▸ Footer</span><span class="pill ours">ours</span></div>
+          </div>
+          <div class="props">
+            <b>Body → RulesText → LeaderboardsHubRulesPopupView</b>
+            <table>
+              <tr><th>property</th><th>base</th><th>ours</th><th>theirs</th></tr>
+              <tr><td>maxLines</td><td>6</td><td class="ours">8</td><td class="theirs">10</td></tr>
+              <tr><td>descriptionKey</td><td>rules_desc</td><td>rules_desc_v2</td><td>rules_desc_v2</td></tr>
+            </table>
+            <div class="actions"><span class="btn small">Use ours (8)</span><span class="btn small">Use theirs (10)</span><span>descriptionKey is the same on both sides, no conflict</span><span class="mark">4</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <ul class="notes">
+    <li><span class="mark">1</span>В состоянии merge панель меняется: Commit merge завершает, Abort откатывает. Fetch, pull и push недоступны.</li>
+    <li><span class="mark">2</span>Сначала отрабатывает UnityYAMLMerge. Остаются только настоящие конфликты, их и показываем.</li>
+    <li><span class="mark">3</span>Иерархия по Transform, имена скриптов по guid из .meta. Бейджи показывают, с чьей стороны изменения.</li>
+    <li><span class="mark">4</span>Выбор по свойству записывает результат в файл и после решения всех конфликтов помечает файл решённым. Это этап Unity, в MVP только просмотр.</li>
+  </ul>
+  <div class="pager"><a href="07-new-branch.html">← 07 New branch</a><a href="09-global-settings.html">09 Global Settings →</a></div>
+</div>
+</body></html>

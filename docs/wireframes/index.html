@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>epic-git · Wireframes</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="wire.css">
+<style>
+.toc{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+.toc li a{display:block;padding:12px 14px;background:var(--paper);border:1px solid var(--line);border-radius:6px;color:var(--ink);text-decoration:none}
+.toc li a:hover{border-color:var(--accent)}
+.toc .k{font:11px/1 "JetBrains Mono",monospace;color:var(--ink-3);margin-bottom:6px}
+.toc .d{color:var(--ink-2);font-size:12.5px;margin-top:4px}
+</style>
+</head><body>
+<div class="page">
+  <h1>epic-git — вайрфреймы</h1>
+  <p class="lead">Каждое окно, состояние и попап отдельным файлом. Низкая детализация специально: важны расположение элементов и поведение, а не финальный вид. Цифры в кружках на макете ссылаются на пометки под ним.</p>
+  <ul class="toc">
+    <li><a href="01-changes.html"><div class="k">01</div>Главное окно · Changes<div class="d">Верхняя панель, строка операций, unstaged/staged, дифф, форма коммита</div></a></li>
+    <li><a href="02-commits.html"><div class="k">02</div>Главное окно · Commits<div class="d">Одна линия текущей ветки, фильтр, детали коммита</div></a></li>
+    <li><a href="03-repositories.html"><div class="k">03</div>Дропдаун Repositories<div class="d">Группа-папка, ручная группа, добавление</div></a></li>
+    <li><a href="04-merge.html"><div class="k">04</div>Меню Merge и Open in Code<div class="d">Три сценария merge, галочка stash</div></a></li>
+    <li><a href="05-busy.html"><div class="k">05</div>Занятый репозиторий<div class="d">Действия заблокированы, переключение свободно</div></a></li>
+    <li><a href="06-repo-settings.html"><div class="k">06</div>Repo Settings<div class="d">General и Task template</div></a></li>
+    <li><a href="07-new-branch.html"><div class="k">07</div>Создать ветку по шаблону<div class="d">Пресеты Jira и ClickUp, без шаблона</div></a></li>
+    <li><a href="08-conflicts.html"><div class="k">08</div>Конфликты и дерево префаба<div class="d">Секция Conflicts, Unity-дерево, свойства base/ours/theirs</div></a></li>
+    <li><a href="09-global-settings.html"><div class="k">09</div>Global Settings и учётки<div class="d">Пути, редактор, GCM, SSH</div></a></li>
+    <li><a href="10-dialogs.html"><div class="k">10</div>Add group · Clone · Askpass<div class="d">Три небольших диалога</div></a></li>
+    <li><a href="11-context-menus.html"><div class="k">11</div>Контекстные меню<div class="d">Ветка, коммит, стеш</div></a></li>
+  </ul>
+</div>
+</body></html>

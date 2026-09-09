@@ -1,0 +1,22 @@
+node_modules/
+dist/
+dist-types/
+*.tsbuildinfo
+*.log
+.tmp/
+
+# Neutralino: binaries come from `neu update`, resources are the Vite build output
+app/bin/
+app/client/
+app/resources/
+app/.tmp/
+app/neutralinojs.log
+
+# user data of a running dev build (settings, cache, logs)
+data/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>epic-git · 09 Global Settings</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="wire.css">
+</head><body>
+<div class="page">
+  <div class="crumbs"><a href="index.html">Вайрфреймы</a><span class="idx">09 / 11</span></div>
+  <h1>Global Settings и учётки</h1>
+  <p class="lead">Глобальное: пути и редактор. Учётки живут в Git Credential Manager, мы показываем, что там есть, и запускаем вход в удобный момент.</p>
+
+  <div class="stack">
+    <div class="dlg">
+      <div class="hd">Global Settings</div>
+      <div class="tabs"><div class="on">General</div><div>Accounts</div><div>Task presets</div></div>
+      <div class="bd"><div class="form">
+        <label>git</label><div class="val mono">C:\Program Files\Git\cmd\git.exe <span class="src">2.53.0 found</span></div>
+        <label>Credential manager</label><div class="val ro">Git Credential Manager 2.6 found</div>
+        <label>UnityYAMLMerge</label><div class="val mono">auto, from ProjectVersion.txt <span class="caret">▼</span></div>
+        <label>Editor command</label><div class="val mono">code "{path}"</div>
+        <div class="hint">Used by Open in Code for a repository and for a group folder. On macOS without the CLI: open -a "Visual Studio Code".</div>
+        <label>Theme</label><div class="val">System <span class="caret">▼</span></div>
+        <label>Data folder</label><div class="val ro mono">D:\Dev\epic-git\data</div>
+      </div></div>
+      <div class="ft"><span class="btn">Cancel</span><span class="btn primary">Save</span></div>
+    </div>
+
+    <div class="dlg">
+      <div class="hd">Global Settings</div>
+      <div class="tabs"><div>General</div><div class="on">Accounts</div><div>Task presets</div></div>
+      <div class="bd">
+        <div class="accounts">
+          <div class="row"><span class="led"></span>github.com<span class="meta">OAuth · jungleafknodef · <u>sign out</u></span></div>
+          <div class="row"><span class="led"></span>gitlab.chillgaming.net<span class="meta">token · expires 12 Dec · <u>sign out</u></span></div>
+          <div class="row"><span class="led off"></span>bitbucket.org<span class="meta">not signed in</span></div>
+        </div>
+        <div class="form">
+          <label></label><div class="inlinebtns"><span class="btn">Sign in with browser</span><span class="btn">Add token</span><span class="mark">1</span></div>
+          <label>SSH keys</label><div class="val mono">id_ed25519 · SHA256:k3Fm…<span class="src"><span class="btn small">copy public</span> <span class="btn small">test github.com</span></span></div>
+          <label></label><div class="inlinebtns"><span class="btn small">Generate new key</span></div>
+        </div>
+      </div>
+      <div class="ft"><span class="btn primary">Close</span></div>
+    </div>
+  </div>
+
+  <ul class="notes"><li><span class="mark">1</span>Вход через браузер выполняет GCM для GitHub, GitLab, Bitbucket и Azure DevOps. Мы вызываем его здесь, а не посреди пуша.</li></ul>
+  <div class="pager"><a href="08-conflicts.html">← 08 Conflicts</a><a href="10-dialogs.html">10 Dialogs →</a></div>
+</div>
+</body></html>

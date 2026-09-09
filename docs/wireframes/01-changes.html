@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>epic-git · 01 Changes</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="wire.css">
+</head><body>
+<div class="page">
+  <div class="crumbs"><a href="index.html">Вайрфреймы</a><span class="idx">01 / 11</span></div>
+  <h1>Главное окно, вид Changes</h1>
+  <p class="lead">Состояние по умолчанию после запуска. Верхняя панель наша, без форковской. Строка фоновых операций под ней видна только пока что-то идёт.</p>
+
+  <div class="stage"><div class="win h">
+    <div class="title">epic-git — clm-client <span class="path">D:\Work\clm-client</span></div>
+    <div class="toolbar">
+      <span class="btn">Repositories <span class="caret">▼</span><span class="mark">1</span></span>
+      <span class="btn">Repo Settings</span>
+      <span class="btn">Global Settings</span>
+      <span class="gap"></span>
+      <span class="btn">Fetch</span>
+      <span class="btn">Pull <span class="count">↓3</span></span>
+      <span class="btn">Push <span class="count">↑1</span></span>
+      <span class="btn primary">Commit</span>
+      <span class="btn">Merge <span class="caret">▼</span><span class="mark">2</span></span>
+      <span class="gap"></span>
+      <span class="btn">Open in Code <span class="caret">▼</span></span>
+      <div class="branch"><span class="ref head">HEAD</span><span class="name">feature/super-seasons#OST-53176</span><span class="tagchip">OST-53176 ↗</span><span class="mark">3</span></div>
+    </div>
+    <div class="ops">
+      <span class="job"><span class="spin"></span><b>other-repo</b> fetch origin · 4 s <a>log</a> <a>cancel</a></span>
+      <span class="job"><span class="spin"></span><b>tools</b> clone 42 % · 1.2 MB/s <a>cancel</a></span>
+      <span class="mark">4</span>
+    </div>
+    <div class="layout">
+      <div class="side">
+        <div class="seg"><div class="on">Changes 6</div><div>Commits</div></div>
+        <div class="field">Filter</div>
+        <ul class="tree">
+          <li class="head"><span>Branches</span><span class="mark">5</span></li>
+          <li class="d1"><span>▸ feature</span></li>
+          <li class="d1"><span>▸ fix</span></li>
+          <li class="d1"><span>▸ playtest</span></li>
+          <li class="d1"><span>master</span><span class="ab">↑1 ↓106</span></li>
+          <li class="d1 cur"><span>✓ feature/super-seasons#OST-53176</span></li>
+          <li class="d1"><span>rc-1.1</span></li>
+          <li class="head"><span>Remotes</span></li>
+          <li class="d1"><span>▸ origin</span></li>
+          <li class="head"><span>Tags</span></li>
+          <li class="d1"><span>▸ 12 tags</span></li>
+          <li class="head"><span>Stashes</span></li>
+          <li class="d1"><span>test logs</span></li>
+          <li class="d1"><span>local ui frame</span></li>
+          <li class="head"><span>Submodules</span></li>
+          <li class="d1"><span>none</span></li>
+        </ul>
+      </div>
+      <div class="main">
+        <div class="col">
+          <div class="colhead">Unstaged 4 <span class="tools"><span class="btn small">Stage all</span></span></div>
+          <ul class="files">
+            <li><span class="dir">▾ Assets/dev/Scripts/ECS/Morpeh/Features</span></li>
+            <li class="d1 sel"><span class="flag a">A</span><span class="name">AnalyticsTestEventFeature/Components/AnalyticsTestEventChatCommand.cs</span></li>
+            <li class="d1"><span class="flag a">A</span><span class="name">AnalyticsTestEventFeature/Systems/AnalyticsTestEventChatCommandSystem.cs</span></li>
+            <li class="d1"><span class="flag m">M</span><span class="name">LeaderboardsHubFeature/Datagrams/LeaderboardsHubRulesPopupData.cs</span></li>
+            <li><span class="dir">▾ Assets/Prefabs/gui/screens/leaderboards</span></li>
+            <li class="d1"><span class="flag m">M</span><span class="name">superSeasons/leaderboard_rules_popup.prefab</span><span class="tagchip">tree</span><span class="mark">6</span></li>
+          </ul>
+          <div class="colhead">Staged 2 <span class="tools"><span class="btn small">Unstage all</span></span></div>
+          <ul class="files">
+            <li><span class="flag m">M</span><span class="name">Assets/dev/Scripts/ECS/Morpeh/Features/LeaderboardsHubFeature/Systems/LeaderboardsHubRulesPopupDataSyncSystem.cs</span></li>
+            <li><span class="flag d">D</span><span class="name">Assets/dev/Scripts/ECS/Morpeh/Features/LeaderboardsHubFeature/OldRulesPopup.cs</span></li>
+          </ul>
+        </div>
+        <div class="col">
+          <div class="colhead"><span class="file">AnalyticsTestEventChatCommand.cs</span><span class="tools"><span class="btn small">Side by side</span><span class="btn small">Inline</span><span class="btn small">Stage hunk</span><span class="mark">7</span></span></div>
+          <div class="diff">
+            <div class="hunk">@@ -0,0 +1,9 @@</div>
+            <div class="ln"><div class="n"></div><div></div><div class="n">1</div><div class="add">using Scellecs.Morpeh;</div></div>
+            <div class="ln"><div class="n"></div><div></div><div class="n">2</div><div class="add"></div></div>
+            <div class="ln"><div class="n"></div><div></div><div class="n">3</div><div class="add">namespace dev.Scripts.ECS.Morpeh.Features.AnalyticsTestEventFeature.Components</div></div>
+            <div class="ln"><div class="n"></div><div></div><div class="n">4</div><div class="add">{</div></div>
+            <div class="ln"><div class="n"></div><div></div><div class="n">5</div><div class="add">    [EcsComponent]</div></div>
+            <div class="ln"><div class="n"></div><div></div><div class="n">6</div><div class="add">    public partial struct AnalyticsTestEventChatCommand</div></div>
+            <div class="ln"><div class="n"></div><div></div><div class="n">7</div><div class="add">    {</div></div>
+            <div class="ln"><div class="n"></div><div></div><div class="n">8</div><div class="add">    }</div></div>
+            <div class="ln"><div class="n"></div><div></div><div class="n">9</div><div class="add">}</div></div>
+          </div>
+          <div class="commitform">
+            <div class="row"><span class="tagchip">[OST-53176]</span><div class="field">Commit subject</div><span class="btn small">Insert task code</span><span class="mark">8</span></div>
+            <div class="field desc">Description</div>
+            <div class="row"><span class="check"><i></i>Amend last commit</span><span style="flex:1"></span><span class="btn">Commit &amp; Push</span><span class="btn primary">Commit</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <ul class="notes">
+    <li><span class="mark">1</span>Repositories открывает список групп и репозиториев (экран 03). Рядом настройки текущего репозитория и глобальные.</li>
+    <li><span class="mark">2</span>Merge раскрывает три сценария с галочкой stash (экран 04).</li>
+    <li><span class="mark">3</span>Текущая ветка всегда справа в панели. Если по шаблону распознан код задачи, рядом ссылка в трекер.</li>
+    <li><span class="mark">4</span>Строка фоновых операций по всем репозиториям, не только текущему. Лог и отмена по клику. Скрывается, когда операций нет.</li>
+    <li><span class="mark">5</span>Ветки сгруппированы по префиксу. У master виден ahead/behind. Правый клик даёт контекстное меню (экран 11).</li>
+    <li><span class="mark">6</span>Для .prefab, .unity и .asset дифф можно переключить на дерево объектов (экран 08).</li>
+    <li><span class="mark">7</span>Свой просмотрщик диффа, только чтение. Side-by-side или inline, стейджинг по ханкам.</li>
+    <li><span class="mark">8</span>Префикс кода задачи подставляется по шаблону репозитория, его можно удалить. У пресета Jira префикса нет.</li>
+  </ul>
+  <div class="pager"><a href="index.html">← Оглавление</a><a href="02-commits.html">02 Commits →</a></div>
+</div>
+</body></html>
