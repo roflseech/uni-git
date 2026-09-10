@@ -20,3 +20,8 @@ data/
 Thumbs.db
 .vscode/*
 !.vscode/extensions.json
+
+# backend bundle for the shell (built by `npm run build -w backend`); run.sh is committed
+app/extensions/backend/main.js
+app/extensions/backend/main.js.map
+app/extensions/backend/package.json

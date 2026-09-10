@@ -9,8 +9,19 @@
   "enableServer": true,
   "enableNativeAPI": true,
   "tokenSecurity": "one-time",
-  "logging": { "enabled": false, "writeToLogFile": false },
-  "nativeAllowList": ["app.*", "os.*", "filesystem.*", "window.*", "events.*", "extensions.*", "debug.*"],
+  "logging": {
+    "enabled": false,
+    "writeToLogFile": false
+  },
+  "nativeAllowList": [
+    "app.*",
+    "os.*",
+    "filesystem.*",
+    "window.*",
+    "events.*",
+    "extensions.*",
+    "debug.*"
+  ],
   "modes": {
     "window": {
       "title": "epic-git",
@@ -34,6 +45,16 @@
     "extensionsPath": "/extensions/",
     "clientLibrary": "/client/neutralino.js",
     "binaryVersion": "6.9.0",
-    "clientVersion": "6.9.0"
-  }
+    "clientVersion": "6.9.0",
+    "extensionsExclude": ".*.map$"
+  },
+  "enableExtensions": true,
+  "extensions": [
+    {
+      "id": "dev.epicgit.backend",
+      "commandWindows": "node \"${NL_PATH}/extensions/backend/main.js\"",
+      "commandDarwin": "/bin/sh \"${NL_PATH}/extensions/backend/run.sh\"",
+      "commandLinux": "/bin/sh \"${NL_PATH}/extensions/backend/run.sh\""
+    }
+  ]
 }

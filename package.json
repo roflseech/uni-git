@@ -14,14 +14,16 @@
     "neu:run": "cd app && neu run",
     "neu:build": "cd app && neu build",
     "build": "npm run build -w shared && npm run build -w backend && npm run build -w frontend",
-    "dev": "npm run build -w shared && concurrently -k -n frontend,backend,app \"npm run dev -w frontend\" \"npm run dev -w backend\" \"npm run neu:run\"",
+    "dev": "npm run build -w shared && concurrently -k -n frontend,backend,app \"npm run dev -w frontend\" \"npm run dev -w backend\" \"npm run neu:run -- -- --enable-extensions=false --window-enable-inspector=true\"",
     "dist": "npm run build && npm run neu:build",
-    "typecheck": "tsc -b shared backend frontend"
+    "typecheck": "tsc -b shared backend frontend",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@neutralinojs/neu": "^11.0.0",
     "concurrently": "^9.1.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "vitest": "^3.2.0"
   },
   "engines": {
     "node": ">=20"
