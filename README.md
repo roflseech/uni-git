@@ -4,21 +4,29 @@ An easy Git client with Unity integrations, for Windows and macOS. It starts fas
 
 ## Install
 
-**Windows** — in PowerShell:
+**Windows:** open the Start menu, type `PowerShell` and open it. Paste this line and press Enter:
 
 ```powershell
 irm https://github.com/roflseech/uni-git/releases/latest/download/install.ps1 | iex
 ```
 
-**macOS** — in Terminal:
+**macOS:** open Terminal (press Cmd+Space and type `Terminal`). Paste this line and press Enter:
 
 ```sh
 curl -fsSL https://github.com/roflseech/uni-git/releases/latest/download/install.sh | sh
 ```
 
-The installer adds whatever is missing (Git with Git Credential Manager, Node.js, and the WebView2 runtime on Windows), installs uni-git into your user folder without admin rights and starts it. Afterwards open it from the Start menu (Windows) or `~/Applications/uni-git.app` (macOS). Run the same line again to repair an installation; your settings stay.
+That's all. The installer:
+
+1. adds whatever is missing: Git with Git Credential Manager, Node.js, and on Windows the WebView2 runtime (Windows may ask for permission while it installs these);
+2. puts uni-git in your user folder (`%LOCALAPPDATA%\Programs\uni-git` on Windows, `~/Library/Application Support/uni-git` on macOS), no admin rights needed;
+3. starts it.
+
+Next time, open **uni-git** from the Start menu (Windows) or from `~/Applications/uni-git.app` (macOS). If something breaks, run the same line again: it repairs the installation and keeps your settings.
 
 **Updates are automatic.** A few seconds after start uni-git checks for a new version, installs it in the background and shows a bar with **Restart now** (the restart takes about a second) and **Later** (the update starts with the next launch). Releases are signed, and the app refuses anything that is not.
+
+To uninstall, delete the folder above (this removes your uni-git settings too) and the uni-git shortcut in the Start menu or `~/Applications/uni-git.app`.
 
 ## What it does
 

@@ -15,10 +15,11 @@ app/neutralinojs.log
 # user data of a running dev build (settings, cache, logs)
 data/
 
-# release signing key (tools/release/keygen.mjs) and release build output (tools/release/build.mjs)
+# release signing key (tools/release/keygen.mjs), anywhere; release build output (tools/release/build.mjs), root only:
+# an unanchored release/ would also hide tools/release/
 .keys/
-release/
-release-notes.md
+/release/
+/release-notes.md
 
 # OS / editor noise
 .DS_Store
