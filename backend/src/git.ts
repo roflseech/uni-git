@@ -37,10 +37,19 @@ export class GitError extends Error {
     this.name = "GitError";
   }
 
+  /** The line a user needs: fatal/error/CONFLICT first, then anything that is not a warning or a hint. */
   static describe(args: string[], r: GitResult): string {
-    const msg = (r.stderr || r.stdout).trim();
+    const lines = `${r.stderr}\n${r.stdout}`
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const pick =
+      lines.find((l) => /^(fatal|error):/i.test(l)) ??
+      lines.find((l) => /^CONFLICT|^Automatic merge failed|rejected|not possible/i.test(l)) ??
+      lines.find((l) => !/^(warning|hint):/i.test(l)) ??
+      lines[0];
     const cmd = "git " + args.filter((a) => !a.startsWith("-c") && a !== "core.quotepath=false").slice(0, 3).join(" ");
-    return msg ? msg : `${cmd} failed with code ${r.code}`;
+    return pick ? pick : `${cmd} failed with code ${r.code}`;
   }
 }
 

@@ -1,4 +1,27 @@
-import type { FileChange } from "@epic-git/shared";
+import type { FileChange, FileDiff } from "@epic-git/shared";
+
+/** A unified diff containing only one hunk of the shown diff, for `git apply --cached [--reverse]`. */
+export function hunkPatch(diff: FileDiff, hunkIndex: number): string {
+  const h = diff.hunks[hunkIndex];
+  if (!h) return "";
+  const body = h.lines.map((l) => {
+    const prefix = l.t === "add" ? "+" : l.t === "del" ? "-" : " ";
+    return prefix + l.text + (l.noNewline ? "\n\\ No newline at end of file" : "");
+  });
+  return [`--- a/${diff.oldPath ?? diff.path}`, `+++ b/${diff.path}`, h.header, ...body].join("\n") + "\n";
+}
+
+/** Theme is applied to <html data-theme>; "system" removes the attribute so the media query decides. */
+export function applyTheme(theme: string | undefined): void {
+  const t = theme === "dark" || theme === "light" ? theme : "";
+  if (t) document.documentElement.setAttribute("data-theme", t);
+  else document.documentElement.removeAttribute("data-theme");
+  try {
+    localStorage.setItem("epic-git.theme", t);
+  } catch {
+    /* optional */
+  }
+}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 

@@ -2,6 +2,10 @@
  * Types shared by the frontend and the backend: API contracts, config shapes, job/event models.
  * Kept free of runtime dependencies so both sides can import it.
  */
+import type { TaskPreset, TaskTemplate } from "./tasks.js";
+export * from "./tasks.js";
+export * from "./mergePlan.js";
+
 export const APP_NAME = "epic-git";
 export const API_VERSION = 1;
 
@@ -44,9 +48,69 @@ export interface RepoEntry {
   external?: boolean;
 }
 
+export type Theme = "system" | "light" | "dark";
+
+/**
+ * Window layout remembered between launches. Kept in data/ like every setting: the webview's localStorage does not
+ * survive a restart (the shell listens on a random port, so the page origin changes).
+ */
+export interface UiLayout {
+  /** side panel width, px */
+  sideWidth?: number;
+  /** left column of the Changes / Commits view, % of the view width */
+  changesSplit?: number;
+  commitsSplit?: number;
+  /** file list of the selected commit (Commits view), % of the details column height */
+  commitFilesSplit?: number;
+}
+
 export interface GlobalSettings {
+  ui?: UiLayout;
   gitPath?: string;
   editorCommand?: string;
+  theme?: Theme;
+  /** Merge menu: stash uncommitted changes before the operation and restore them after. */
+  mergeStash?: boolean;
+  /** User-saved task template presets by name (built-in Jira/ClickUp are not stored). */
+  taskPresets?: Record<string, TaskTemplate>;
+}
+
+/** data/repos/<id>.json — per-repository settings that do not belong in .git/config. */
+export interface RepoSettings {
+  /** Explicit main branch; when absent it is detected (main, master, origin/HEAD). */
+  mainBranch?: string;
+  /** Task template of this repository; absent/null = no template (plain branch names, unmarked commits). */
+  template?: TaskTemplate | null;
+  /** Preset the template was taken from, for the dropdown; "Custom" when edited. */
+  presetName?: string;
+}
+
+export type ConfigScope = "local" | "global" | "system" | "worktree" | "command" | "none";
+
+export interface RepoSettingsView {
+  path: string;
+  groupId: string;
+  mainBranch: string;
+  /** true when mainBranch came from detection rather than settings */
+  mainBranchAuto: boolean;
+  userName: string;
+  userNameScope: ConfigScope;
+  userEmail: string;
+  userEmailScope: ConfigScope;
+  branches: string[];
+  template: TaskTemplate | null;
+  presetName: string | null;
+  /** built-in presets followed by the user's saved ones */
+  presets: TaskPreset[];
+}
+
+export interface GlobalSettingsView extends GlobalSettings {
+  dataDir: string;
+  /** e.g. "2.53.0", or null when git cannot be run with the configured path */
+  gitVersion: string | null;
+  gitResolved: string;
+  /** Git Credential Manager version, null when not installed */
+  gcmVersion: string | null;
 }
 
 export interface AppConfig {
@@ -81,6 +145,12 @@ export interface RepoStatus {
   ahead: number;
   behind: number;
   operation: RepoOperation;
+  /** Task template of the repository (Repo Settings), null when none. */
+  template?: TaskTemplate | null;
+  /** The repository's main branch (Repo Settings or detected) and how the current branch relates to it. */
+  mainBranch?: string;
+  aheadOfMain?: number;
+  behindMain?: number;
   unstaged: FileChange[];
   staged: FileChange[];
   conflicts: FileChange[];
@@ -199,7 +269,22 @@ export type ServerEvent =
   | { type: "job"; job: JobInfo }
   | { type: "jobLog"; jobId: string; chunk: string }
   | { type: "repoChanged"; repoId: string }
-  | { type: "configChanged"; config: AppConfig };
+  | { type: "configChanged"; config: AppConfig }
+  /** git or ssh inside a job needs input (password, passphrase, host key confirmation). */
+  | { type: "askpass"; request: AskpassRequest }
+  | { type: "askpassDone"; id: string };
+
+export type AskpassKind = "username" | "password" | "passphrase" | "hostkey" | "other";
+
+export interface AskpassRequest {
+  id: string;
+  jobId: string;
+  repoName: string;
+  jobTitle: string;
+  kind: AskpassKind;
+  /** The prompt exactly as git/ssh printed it. */
+  prompt: string;
+}
 
 // ───────────────────────── HTTP API ─────────────────────────
 
@@ -220,6 +305,42 @@ export interface FileRef {
   path: string;
   area: ChangeArea;
   kind: ChangeKind;
+}
+
+export interface AccountInfo {
+  host: string;
+  signedIn: boolean;
+  username?: string;
+  /** default = well-known host, remote = taken from a repository remote */
+  source: "default" | "remote";
+}
+
+export interface SshKeyInfo {
+  file: string;
+  name: string;
+  type: string;
+  fingerprint: string;
+  comment: string;
+  publicKey: string;
+}
+
+export interface RemoteInfo {
+  name: string;
+  url: string;
+  protocol: "https" | "ssh" | "other";
+  host: string;
+}
+
+/** Repo Settings → Authentication: which account / key this repository uses (written to .git/config). */
+export interface RepoAuthView {
+  remotes: RemoteInfo[];
+  /** credential.username in .git/config, "" = whatever the helper picks */
+  username: string;
+  /** private key path from core.sshCommand, "" = ssh default */
+  sshKey: string;
+  /** accounts of the https hosts of this repository */
+  accounts: AccountInfo[];
+  keys: SshKeyInfo[];
 }
 
 export interface ApiError {
@@ -248,19 +369,79 @@ export interface Api {
   "/repo/unstage": { req: { repoId: string; paths: string[] }; res: { job: JobInfo } };
   "/repo/commit": { req: { repoId: string; message: string; amend: boolean; push: boolean }; res: { job: JobInfo } };
   "/repo/log": {
-    req: { repoId: string; skip: number; limit: number; text?: string; author?: string };
+    /** ref: branch to list instead of HEAD; task: task code the message must contain (with text: both must match) */
+    req: { repoId: string; skip: number; limit: number; text?: string; author?: string; ref?: string; task?: string };
     res: { commits: CommitInfo[]; hasMore: boolean };
   };
   "/repo/commit-details": { req: { repoId: string; sha: string }; res: CommitDetails };
   "/repo/commit-branches": { req: { repoId: string; sha: string }; res: { branches: string[] } };
   "/repo/commit-diff": { req: { repoId: string; sha: string; path: string }; res: FileDiff };
-  /** remote=true: `branch` is `origin/name`; a local tracking branch is created unless it exists. stash: stash before, pop after. */
-  "/repo/checkout": { req: { repoId: string; branch: string; remote: boolean; stash: boolean }; res: { job: JobInfo } };
+  /** remote=true: `branch` is `origin/name`; a local tracking branch is created unless it exists. stash: stash before, pop after. discard: throw all changes away first (untracked files too). */
+  "/repo/checkout": { req: { repoId: string; branch: string; remote: boolean; stash: boolean; discard?: boolean }; res: { job: JobInfo } };
   "/repo/fetch": { req: { repoId: string }; res: { job: JobInfo } };
-  "/repo/pull": { req: { repoId: string }; res: { job: JobInfo } };
-  "/repo/push": { req: { repoId: string }; res: { job: JobInfo } };
+  /** discard: throw all uncommitted changes away first (untracked files too) */
+  "/repo/pull": { req: { repoId: string; discard?: boolean }; res: { job: JobInfo } };
+  "/repo/push": { req: { repoId: string; force?: boolean; tags?: boolean }; res: { job: JobInfo } };
+  /** main: merge main into current; force-main: fetch origin main:main first; into-main: switch, pull, merge current, push */
+  "/repo/merge-scenario": { req: { repoId: string; mode: "main" | "force-main" | "into-main"; stash: boolean }; res: { job: JobInfo } };
+  "/repo/auth": { req: { repoId: string }; res: RepoAuthView };
+  "/repo/auth/save": { req: { repoId: string; username: string; sshKey: string }; res: { ok: boolean } };
+  "/repo/auth/test": { req: { repoId: string }; res: { job: JobInfo } };
+  "/repo/conflict/resolve": { req: { repoId: string; paths: string[]; take: "ours" | "theirs" | "mark" }; res: { job: JobInfo } };
+  "/repo/operation/abort": { req: { repoId: string }; res: { job: JobInfo } };
+  "/repo/operation/continue": { req: { repoId: string }; res: { job: JobInfo } };
+  "/repo/cherry-pick": { req: { repoId: string; shas: string[] }; res: { job: JobInfo } };
+  "/repo/stash/save": { req: { repoId: string; message: string; includeUntracked: boolean }; res: { job: JobInfo } };
+  "/repo/stash/apply": { req: { repoId: string; ref: string; pop: boolean }; res: { job: JobInfo } };
+  "/repo/stash/drop": { req: { repoId: string; ref: string }; res: { job: JobInfo } };
+  "/repo/stash/sha": { req: { repoId: string; ref: string }; res: { sha: string } };
+  "/repo/tag/create": { req: { repoId: string; name: string; sha: string; message: string; push: boolean }; res: { job: JobInfo } };
+  "/repo/tag/delete": { req: { repoId: string; name: string; remote: boolean }; res: { job: JobInfo } };
+  "/repo/tag/push": { req: { repoId: string; name: string }; res: { job: JobInfo } };
+  "/repo/remote/add": { req: { repoId: string; name: string; url: string }; res: { job: JobInfo } };
+  "/repo/remote/remove": { req: { repoId: string; name: string }; res: { job: JobInfo } };
+  "/repo/remote/url": { req: { repoId: string; name: string }; res: { url: string } };
+  "/repo/submodule/update": { req: { repoId: string }; res: { job: JobInfo } };
+  "/repo/merge-message": { req: { repoId: string }; res: { message: string } };
   "/repo/last-message": { req: { repoId: string }; res: { message: string } };
   "/repo/user": { req: { repoId: string }; res: { name: string; email: string } };
+  "/repo/settings": { req: { repoId: string }; res: RepoSettingsView };
+  "/repo/settings/save": {
+    req: {
+      repoId: string;
+      groupId: string;
+      mainBranch: string | null;
+      userName: string;
+      userEmail: string;
+      template: TaskTemplate | null;
+      presetName: string | null;
+    };
+    res: { ok: boolean };
+  };
+  "/repo/branch/create": { req: { repoId: string; name: string; from: string; checkout: boolean }; res: { job: JobInfo } };
+  "/repo/branch/delete": { req: { repoId: string; name: string; remote: boolean; force: boolean }; res: { job: JobInfo } };
+  "/repo/branch/rename": { req: { repoId: string; from: string; to: string }; res: { job: JobInfo } };
+  "/repo/merge": { req: { repoId: string; branch: string }; res: { job: JobInfo } };
+  "/repo/merged-into": { req: { repoId: string; branch: string; into: string[] }; res: { merged: Record<string, boolean> } };
+  /** all: every uncommitted change, staged or not, untracked files included (paths are ignored) */
+  "/repo/discard": { req: { repoId: string; paths: string[]; all?: boolean }; res: { job: JobInfo } };
+  "/repo/ignore": { req: { repoId: string; patterns: string[] }; res: { job: JobInfo } };
+  /** patch: a unified diff for one file; reverse=true unstages */
+  "/repo/apply-patch": { req: { repoId: string; patch: string; reverse: boolean }; res: { job: JobInfo } };
+  "/settings/global": { req: Record<string, never>; res: GlobalSettingsView };
+  "/settings/global/save": { req: { settings: GlobalSettings }; res: GlobalSettingsView };
+  /** Merges the given layout values into settings.ui (a dragged splitter); a value of 0 removes the entry (back to the default). */
+  "/settings/ui/save": { req: { ui: UiLayout }; res: { ui: UiLayout } };
+  "/accounts/list": { req: Record<string, never>; res: { accounts: AccountInfo[]; sshHosts: string[]; keys: SshKeyInfo[] } };
+  /** Runs the helper's interactive flow (GCM opens the browser) as a job; the result is stored by the helper. */
+  "/accounts/login": { req: { host: string }; res: { job: JobInfo } };
+  "/accounts/token": { req: { host: string; username: string; token: string }; res: { ok: boolean } };
+  "/accounts/logout": { req: { host: string; username?: string }; res: { ok: boolean } };
+  "/ssh/generate": { req: { comment: string }; res: { key: SshKeyInfo } };
+  "/ssh/test": { req: { host: string }; res: { job: JobInfo } };
+  "/askpass": { req: { token: string; jobId: string; prompt: string }; res: { value: string | null } };
+  "/askpass/answer": { req: { id: string; value: string | null }; res: { ok: boolean } };
+  "/askpass/pending": { req: Record<string, never>; res: { requests: AskpassRequest[] } };
   "/jobs": { req: Record<string, never>; res: { jobs: JobInfo[] } };
   "/jobs/log": { req: { jobId: string }; res: { log: string } };
   "/jobs/cancel": { req: { jobId: string }; res: { ok: boolean } };

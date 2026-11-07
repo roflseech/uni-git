@@ -8,11 +8,14 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { Api, ApiRoute, AppConfig, FolderGroup, ServerEvent } from "@epic-git/shared";
-import { API_VERSION } from "@epic-git/shared";
+import type { Api, ApiRoute, AppConfig, FolderGroup, GlobalSettingsView, ServerEvent, UiLayout } from "@epic-git/shared";
+import { API_VERSION, BUILT_IN_PRESETS, type TaskPreset } from "@epic-git/shared";
 import { ConfigStore, newId, normalizePath } from "./config.js";
 import { discoverRepos, isGitRepo } from "./discover.js";
-import { setGitExecutable } from "./git.js";
+import { getGitExecutable, git, setGitExecutable } from "./git.js";
+import { AskpassBroker } from "./askpass.js";
+import { generateSshKey, listAccounts, listSshKeys, probeHosts, signOut, storeToken } from "./accounts.js";
+import { homedir } from "node:os";
 import { JobManager } from "./jobs.js";
 import { RepoService, enqueueClone } from "./repo.js";
 import { RepoWatcher } from "./watcher.js";
@@ -58,6 +61,7 @@ export class Backend {
   private logFlush: NodeJS.Timeout | null = null;
   private hadClient = false;
   private orphanTimer: NodeJS.Timeout | null = null;
+  private askpass: AskpassBroker | null = null;
 
   constructor(private readonly opts: BackendOptions) {
     this.config = new ConfigStore(opts.dataDir);
@@ -97,9 +101,32 @@ export class Backend {
       this.http.once("error", reject);
       this.http.listen(0, "127.0.0.1", () => {
         const addr = this.http.address() as AddressInfo;
+        this.startAskpass(addr.port);
         resolvePort(addr.port);
       });
     });
+  }
+
+  /** Askpass environment for a non-git child process of a job (ssh test). */
+  private askpassEnvFor(jobId: string): Record<string, string> {
+    return this.jobs.jobEnv(jobId);
+  }
+
+  /** Prompts from git/ssh inside jobs go to the UI; jobs get the environment that routes them here. */
+  private startAskpass(port: number): void {
+    const broker = new AskpassBroker(
+      this.opts.dataDir,
+      port,
+      (request) => this.broadcast({ type: "askpass", request }),
+      (id) => this.broadcast({ type: "askpassDone", id }),
+      (jobId) => {
+        const j = this.jobs.info(jobId);
+        return j ? { repoName: j.repoName, title: j.title } : undefined;
+      },
+    );
+    this.askpass = broker;
+    this.jobs.jobEnv = (jobId) => broker.env(jobId);
+    this.jobs.on("cancel", (jobId) => broker.cancelJob(jobId));
   }
 
   close(): void {
@@ -174,11 +201,12 @@ export class Backend {
       return;
     }
     const auth = req.headers.authorization ?? "";
-    if (auth !== `Bearer ${this.opts.token}`) {
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    // /askpass is called by the helper script with its own token inside the body
+    if (auth !== `Bearer ${this.opts.token}` && url.pathname !== "/askpass") {
       this.json(res, 401, { error: "unauthorized" });
       return;
     }
-    const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const route = url.pathname as ApiRoute;
     const handler = this.handlers[route];
     if (!handler) {
@@ -206,6 +234,21 @@ export class Backend {
   }
 
   // ───────────── domain ─────────────
+
+  /** Built-in presets first, then the user's saved ones. */
+  private presets(): TaskPreset[] {
+    const custom = this.config.get().settings.taskPresets ?? {};
+    return [...BUILT_IN_PRESETS, ...Object.entries(custom).map(([name, template]) => ({ name, template, builtIn: false }))];
+  }
+
+  private async globalSettings(): Promise<GlobalSettingsView> {
+    const s = this.config.get().settings;
+    const version = await git(["--version"], { cwd: process.cwd(), allowFailure: true }).catch(() => null);
+    const gitVersion = version && version.code === 0 ? (/git version (\S+)/.exec(version.stdout)?.[1] ?? version.stdout.trim()) : null;
+    const gcm = await git(["credential-manager", "--version"], { cwd: process.cwd(), allowFailure: true }).catch(() => null);
+    const gcmVersion = gcm && gcm.code === 0 ? (gcm.stdout.trim().split(/\r?\n/)[0]?.split("+")[0] ?? null) : null;
+    return { ...s, dataDir: this.opts.dataDir, gitVersion, gitResolved: getGitExecutable(), gcmVersion };
+  }
 
   private repo(id: string): RepoService {
     let svc = this.repos.get(id);
@@ -322,7 +365,7 @@ export class Backend {
       },
 
       "/repo/snapshot": ({ repoId }) => this.repo(repoId).snapshot(),
-      "/repo/status": ({ repoId }) => this.repo(repoId).status(),
+      "/repo/status": ({ repoId }) => this.repo(repoId).status(this.opts.dataDir),
       "/repo/refs": ({ repoId }) => this.repo(repoId).refs(),
       "/repo/diff": ({ repoId, file }) => this.repo(repoId).diff(file),
       "/repo/stage": ({ repoId, paths }) => ({ job: this.repo(repoId).stage(requirePaths(paths)) }),
@@ -331,19 +374,200 @@ export class Backend {
         if (!message.trim()) throw new HttpError(400, "commit message is empty");
         return { job: this.repo(repoId).commit(message, amend, push) };
       },
-      "/repo/log": ({ repoId, skip, limit, text, author }) => this.repo(repoId).log(skip, limit, text, author),
+      "/repo/log": ({ repoId, skip, limit, text, author, ref, task }) => this.repo(repoId).log(skip, limit, text, author, ref, task),
       "/repo/commit-details": ({ repoId, sha }) => this.repo(repoId).commitDetails(sha),
       "/repo/commit-branches": async ({ repoId, sha }) => ({ branches: await this.repo(repoId).commitBranches(sha) }),
       "/repo/commit-diff": ({ repoId, sha, path }) => this.repo(repoId).commitDiff(sha, path),
-      "/repo/checkout": ({ repoId, branch, remote, stash }) => {
+      "/repo/checkout": ({ repoId, branch, remote, stash, discard }) => {
         if (!branch.trim()) throw new HttpError(400, "branch name is empty");
-        return { job: this.repo(repoId).checkout(branch.trim(), remote, stash) };
+        return { job: this.repo(repoId).checkout(branch.trim(), remote, stash, discard === true) };
       },
       "/repo/fetch": ({ repoId }) => ({ job: this.repo(repoId).fetch() }),
-      "/repo/pull": ({ repoId }) => ({ job: this.repo(repoId).pull() }),
-      "/repo/push": ({ repoId }) => ({ job: this.repo(repoId).push() }),
+      "/repo/pull": ({ repoId, discard }) => ({ job: this.repo(repoId).pull(discard === true) }),
+      "/repo/push": ({ repoId, force, tags }) => ({ job: this.repo(repoId).push(force === true, tags === true) }),
+      "/repo/merge-scenario": ({ repoId, mode, stash }) => {
+        cfg.update((c) => {
+          c.settings.mergeStash = stash;
+        });
+        return { job: this.repo(repoId).mergeScenario(this.opts.dataDir, mode, stash) };
+      },
+      "/repo/conflict/resolve": ({ repoId, paths, take }) => ({ job: this.repo(repoId).resolveConflict(requirePaths(paths), take) }),
+      "/repo/operation/abort": ({ repoId }) => ({ job: this.repo(repoId).abortOperation() }),
+      "/repo/operation/continue": ({ repoId }) => ({ job: this.repo(repoId).continueOperation() }),
+      "/repo/cherry-pick": ({ repoId, shas }) => ({ job: this.repo(repoId).cherryPick(requirePaths(shas)) }),
+      "/repo/stash/save": ({ repoId, message, includeUntracked }) => ({ job: this.repo(repoId).stashSave(message, includeUntracked) }),
+      "/repo/stash/apply": ({ repoId, ref, pop }) => ({ job: this.repo(repoId).stashApply(ref, pop) }),
+      "/repo/stash/drop": ({ repoId, ref }) => ({ job: this.repo(repoId).stashDrop(ref) }),
+      "/repo/stash/sha": async ({ repoId, ref }) => ({ sha: await this.repo(repoId).stashSha(ref) }),
+      "/repo/tag/create": ({ repoId, name, sha, message, push }) => {
+        if (!name.trim()) throw new HttpError(400, "tag name is empty");
+        return { job: this.repo(repoId).tagCreate(name.trim(), sha, message, push) };
+      },
+      "/repo/tag/delete": ({ repoId, name, remote }) => ({ job: this.repo(repoId).tagDelete(name, remote) }),
+      "/repo/tag/push": ({ repoId, name }) => ({ job: this.repo(repoId).tagPush(name) }),
+      "/repo/remote/add": ({ repoId, name, url }) => {
+        if (!name.trim() || !url.trim()) throw new HttpError(400, "remote name and URL are required");
+        return { job: this.repo(repoId).remoteAdd(name.trim(), url.trim()) };
+      },
+      "/repo/remote/remove": ({ repoId, name }) => ({ job: this.repo(repoId).remoteRemove(name) }),
+      "/repo/remote/url": async ({ repoId, name }) => ({ url: await this.repo(repoId).remoteUrl(name) }),
+      "/repo/submodule/update": ({ repoId }) => ({ job: this.repo(repoId).submoduleUpdate() }),
+      "/repo/merge-message": async ({ repoId }) => ({ message: await this.repo(repoId).mergeMessage() }),
       "/repo/last-message": async ({ repoId }) => ({ message: await this.repo(repoId).lastMessage() }),
       "/repo/user": ({ repoId }) => this.repo(repoId).user(),
+      "/repo/settings": ({ repoId }) => this.repo(repoId).settings(this.opts.dataDir, this.presets()),
+      "/repo/auth": async ({ repoId }) => {
+        const svc = this.repo(repoId);
+        const [remotes, cfgAuth, keys] = await Promise.all([svc.authRemotes(), svc.authConfig(), listSshKeys()]);
+        const hosts = [...new Set(remotes.filter((r) => r.protocol === "https").map((r) => r.host))];
+        const accounts = hosts.length ? await probeHosts(hosts) : [];
+        return { remotes, username: cfgAuth.username, sshKey: cfgAuth.sshKey, accounts, keys };
+      },
+      "/repo/auth/save": async ({ repoId, username, sshKey }) => {
+        await this.repo(repoId).saveAuth(username, sshKey);
+        return { ok: true };
+      },
+      "/repo/auth/test": ({ repoId }) => ({ job: this.repo(repoId).testRemotes() }),
+      "/repo/settings/save": async ({ repoId, groupId, mainBranch, userName, userEmail, template, presetName }) => {
+        const svc = this.repo(repoId);
+        if (!cfg.group(groupId)) throw new HttpError(404, "group not found");
+        if (template) {
+          try {
+            new RegExp(template.codePattern);
+          } catch {
+            throw new HttpError(400, "task code pattern is not a valid regular expression");
+          }
+        }
+        await svc.saveSettings(this.opts.dataDir, mainBranch, userName, userEmail, template, presetName);
+        this.broadcast({ type: "repoChanged", repoId });
+        if (svc.entry.groupId !== groupId) {
+          cfg.update((c) => {
+            const r = c.repos.find((x) => x.id === repoId);
+            if (r) {
+              r.groupId = groupId;
+              const g = c.groups.find((x) => x.id === groupId);
+              if (g?.kind === "folder" && normalizePath(resolve(r.path, "..")) === normalizePath(g.root)) delete r.external;
+              else if (g?.kind === "folder") r.external = true;
+              else delete r.external;
+            }
+          });
+        }
+        return { ok: true };
+      },
+      "/repo/branch/create": ({ repoId, name, from, checkout }) => {
+        const n = name.trim();
+        if (!n) throw new HttpError(400, "branch name is empty");
+        return { job: this.repo(repoId).createBranch(n, from.trim() || "HEAD", checkout) };
+      },
+      "/repo/branch/delete": ({ repoId, name, remote, force }) => ({ job: this.repo(repoId).deleteBranch(name.trim(), remote, force) }),
+      "/repo/branch/rename": ({ repoId, from, to }) => {
+        if (!to.trim()) throw new HttpError(400, "new name is empty");
+        return { job: this.repo(repoId).renameBranch(from.trim(), to.trim()) };
+      },
+      "/repo/merge": ({ repoId, branch }) => ({ job: this.repo(repoId).merge(branch.trim()) }),
+      "/repo/merged-into": async ({ repoId, branch, into }) => ({ merged: await this.repo(repoId).mergedInto(branch, into) }),
+      "/repo/discard": ({ repoId, paths, all }) => ({ job: all === true ? this.repo(repoId).discard([], true) : this.repo(repoId).discard(requirePaths(paths)) }),
+      "/repo/ignore": ({ repoId, patterns }) => ({ job: this.repo(repoId).ignore(requirePaths(patterns)) }),
+      "/repo/apply-patch": ({ repoId, patch, reverse }) => {
+        if (!patch.trim()) throw new HttpError(400, "empty patch");
+        return { job: this.repo(repoId).applyPatch(patch, reverse) };
+      },
+      "/settings/global": () => this.globalSettings(),
+      "/settings/global/save": async ({ settings }) => {
+        cfg.update((c) => {
+          c.settings = {
+            ...(settings.gitPath?.trim() ? { gitPath: settings.gitPath.trim() } : {}),
+            ...(settings.editorCommand?.trim() ? { editorCommand: settings.editorCommand.trim() } : {}),
+            ...(settings.theme && settings.theme !== "system" ? { theme: settings.theme } : {}),
+            ...((settings.mergeStash ?? c.settings.mergeStash) ? { mergeStash: true } : {}),
+            ...(Object.keys(settings.taskPresets ?? c.settings.taskPresets ?? {}).length ? { taskPresets: settings.taskPresets ?? c.settings.taskPresets } : {}),
+            // the layout is not part of the settings dialog: it only changes through /settings/ui/save
+            ...(c.settings.ui ? { ui: c.settings.ui } : {}),
+          };
+        });
+        return this.globalSettings();
+      },
+      "/settings/ui/save": ({ ui }) => {
+        const next: UiLayout = { ...cfg.get().settings.ui };
+        for (const key of ["sideWidth", "changesSplit", "commitsSplit", "commitFilesSplit"] as const) {
+          const v = ui[key];
+          if (v === undefined) continue;
+          if (typeof v === "number" && Number.isFinite(v) && v > 0) next[key] = v;
+          else delete next[key];
+        }
+        cfg.update((c) => {
+          if (Object.keys(next).length) c.settings.ui = next;
+          else delete c.settings.ui;
+        });
+        return { ui: next };
+      },
+      "/accounts/list": async () => {
+        const paths = cfg.get().repos.map((r) => r.path);
+        const [{ accounts, sshHosts }, keys] = await Promise.all([listAccounts(paths), listSshKeys()]);
+        return { accounts, sshHosts, keys };
+      },
+      "/accounts/login": ({ host }) => {
+        const h = host.trim().toLowerCase();
+        if (!h) throw new HttpError(400, "host is empty");
+        const target = { id: "accounts", name: "accounts", path: homedir() };
+        const job = this.jobs.enqueue(target, `sign in to ${h}`, async (ctx) => {
+          ctx.log("Asking the credential helper; Git Credential Manager opens the browser or a dialog for this host.");
+          const fill = await ctx.git(["credential", "fill"], { input: `protocol=https\nhost=${h}\n\n` });
+          if (!/^password=/m.test(fill.stdout)) throw new Error("No credentials were returned");
+          ctx.setStep("store");
+          await ctx.git(["credential", "approve"], { input: fill.stdout + "\n" });
+          const user = /^username=(.*)$/m.exec(fill.stdout)?.[1] ?? "";
+          ctx.log(`Signed in to ${h}${user ? ` as ${user}` : ""}`);
+        });
+        return { job };
+      },
+      "/accounts/token": async ({ host, username, token }) => {
+        if (!host.trim() || !token.trim()) throw new HttpError(400, "host and token are required");
+        await storeToken(host.trim().toLowerCase(), username.trim() || "token", token.trim());
+        return { ok: true };
+      },
+      "/accounts/logout": async ({ host, username }) => {
+        await signOut(host.trim().toLowerCase(), username);
+        return { ok: true };
+      },
+      "/ssh/generate": async ({ comment }) => ({ key: await generateSshKey(comment) }),
+      "/ssh/test": ({ host }) => {
+        const h = host.trim().toLowerCase();
+        if (!h) throw new HttpError(400, "host is empty");
+        const target = { id: "accounts", name: "ssh", path: homedir() };
+        const job = this.jobs.enqueue(target, `test ssh ${h}`, async (ctx) => {
+          // ssh is not git, but our askpass env still serves passphrase and host-key prompts
+          await new Promise<void>((resolve, reject) => {
+            const child = spawn("ssh", ["-T", "-o", "StrictHostKeyChecking=accept-new", `git@${h}`], {
+              env: { ...process.env, ...this.askpassEnvFor(job.id) },
+              windowsHide: true,
+              stdio: ["ignore", "pipe", "pipe"],
+            });
+            let text = "";
+            child.stdout.on("data", (d: Buffer) => (text += d.toString("utf8")));
+            child.stderr.on("data", (d: Buffer) => {
+              text += d.toString("utf8");
+              ctx.log(d.toString("utf8"));
+            });
+            ctx.signal.addEventListener("abort", () => child.kill(), { once: true });
+            child.on("error", (e) => reject(new Error(e.message)));
+            child.on("close", () => {
+              if (/success|welcome|authenticated|logged in/i.test(text)) resolve();
+              else reject(new Error(text.trim().split(/\r?\n/).pop() || "ssh did not authenticate"));
+            });
+          });
+        });
+        return { job };
+      },
+      "/askpass": async ({ token, jobId, prompt }) => ({ value: this.askpass ? await this.askpass.ask(token, jobId, prompt) : null }),
+      "/askpass/answer": ({ id, value }) => {
+        // cancelling a prompt cancels the whole operation: the job ends as "cancelled", not as a cryptic git failure
+        const request = this.askpass?.list().find((r) => r.id === id);
+        const ok = this.askpass?.answer(id, value) ?? false;
+        if (ok && value === null && request) this.jobs.cancel(request.jobId);
+        return { ok };
+      },
+      "/askpass/pending": () => ({ requests: this.askpass?.list() ?? [] }),
 
       "/jobs": () => ({ jobs: this.jobs.list() }),
       "/jobs/log": ({ jobId }) => {

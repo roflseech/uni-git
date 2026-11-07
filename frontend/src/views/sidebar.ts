@@ -1,7 +1,24 @@
 import type { App } from "../app.js";
-import { cls, h, type Child } from "../dom.js";
+import { cls, h, onRowDoubleClick, type Child } from "../dom.js";
 import { groupByPrefix } from "../format.js";
 import type { BranchSel } from "../state.js";
+
+function branchKey(sel: BranchSel): string {
+  return `${sel.remote ? "remote" : "local"}:${sel.name}`;
+}
+
+/** Moves the selection highlight; the tree can hold thousands of rows and is not rebuilt for that. */
+export function markSelectedBranch(tree: HTMLElement, sel: BranchSel | null): void {
+  for (const el of tree.querySelectorAll("li.sel")) el.classList.remove("sel");
+  if (!sel) return;
+  const key = branchKey(sel);
+  for (const el of tree.querySelectorAll<HTMLElement>("li[data-branch]")) {
+    if (el.dataset.branch === key) {
+      el.classList.add("sel");
+      return;
+    }
+  }
+}
 
 /** Rows shown per remote / tag list before a "use the filter" hint; keeps huge repositories responsive. */
 const MAX_ROWS = 400;
@@ -47,25 +64,41 @@ export function renderTree(app: App): HTMLElement {
       h("span", { class: "ab" }, String(count)),
     );
 
-  /** Single click selects, double click switches, right click opens the branch menu. */
+  /** Press selects and lists the branch in Commits, double click switches (see watchDoubleClicks: the tree may be rebuilt between the clicks), right click opens the branch menu. */
+  const branchRowOf = (sel: BranchSel, row: HTMLElement) => onRowDoubleClick(row, branchKey(sel), () => app.requestCheckout(sel));
   const branchHandlers = (sel: BranchSel) => ({
-    onclick: () => app.selectBranch(sel),
-    ondblclick: () => app.requestCheckout(sel),
+    "data-branch": branchKey(sel),
+    onmousedown: (e: MouseEvent) => e.button === 0 && app.selectBranch(sel, true),
     oncontextmenu: (e: MouseEvent) => {
       e.preventDefault();
       app.selectBranch(sel);
       const local = sel.remote ? sel.name.slice(sel.name.indexOf("/") + 1) : sel.name;
       const cur = app.state.status?.branch;
-      app.store.set({
-        contextMenu: {
-          x: e.clientX,
-          y: e.clientY,
-          items: [
-            { label: local === cur ? "Current branch" : app.isBusy() ? "Repository is busy" : `Switch to ${local}`, onClick: () => app.requestCheckout(sel) },
-            { label: "Copy branch name", onClick: () => void navigator.clipboard?.writeText(sel.name) },
-          ],
-        },
-      });
+      const isCur = !sel.remote && local === cur;
+      const items: { label: string; danger?: boolean; onClick: () => void }[] = [];
+      if (!isCur) items.push({ label: sel.remote ? `Check out ${local}` : `Switch to ${local}`, onClick: () => app.requestCheckout(sel) });
+      if (!isCur && cur) items.push({ label: `Merge ${sel.name} into ${cur}`, onClick: () => app.mergeBranch(sel.name) });
+      items.push({ label: "New branch from here…", onClick: () => app.openNewBranch(sel.name) });
+      if (!sel.remote) items.push({ label: "Rename…", onClick: () => app.openRenameBranch(sel.name) });
+      const mergedLabel = "Merged into…";
+      items.push({ label: mergedLabel, onClick: () => {} });
+      items.push({ label: "Copy name", onClick: () => void navigator.clipboard?.writeText(sel.name) });
+      if (!isCur) items.push({ label: sel.remote ? "Delete remote branch…" : "Delete branch…", danger: true, onClick: () => app.deleteBranch(sel.name, sel.remote) });
+      if (app.isBusy()) for (const it of items) it.onClick = () => app.toast("Repository is busy", "error");
+      app.store.set({ contextMenu: { x: e.clientX, y: e.clientY, items } });
+      // "Merged into…" is answered in place: main branch candidates + the current branch
+      const refsNow = app.state.refs;
+      const names = new Set(refsNow?.branches.map((b) => b.name) ?? []);
+      const targets = [...["main", "master", "develop"].filter((n) => names.has(n) && n !== local), ...(cur && cur !== local && !["main", "master", "develop"].includes(cur) ? [cur] : [])].slice(0, 3);
+      if (targets.length) {
+        void app.mergedInto(sel.name, targets).then((merged) => {
+          const m = app.state.contextMenu;
+          const row = m?.items.find((it) => it.label === mergedLabel);
+          if (!m || !row) return;
+          row.label = "Merged into " + targets.map((t) => `${t}: ${merged[t] ? "yes" : "no"}`).join(" · ");
+          app.store.set({ contextMenu: { ...m, items: [...m.items] } });
+        });
+      }
     },
   });
 
@@ -77,15 +110,18 @@ export function renderTree(app: App): HTMLElement {
     if (b?.gone) ab.push("gone");
     const isCur = name === current;
     const sel: BranchSel = { name, remote: false };
-    return h(
-      "li",
-      {
-        class: cls(`d${depth}`, "branch", isCur && "cur", isSelected(sel) && "sel"),
-        title: `${name}${b?.upstream ? ` → ${b.upstream}` : ""}${isCur ? " (current)" : ". Double-click to switch"}`,
-        ...branchHandlers(sel),
-      },
-      h("span", null, `${isCur ? "✓ " : ""}${depth === 2 ? name.slice(name.indexOf("/") + 1) : name}`),
-      ab.length ? h("span", { class: "ab" }, ab.join(" ")) : null,
+    return branchRowOf(
+      sel,
+      h(
+        "li",
+        {
+          class: cls(`d${depth}`, "branch", isCur && "cur", isSelected(sel) && "sel"),
+          title: `${name}${b?.upstream ? ` → ${b.upstream}` : ""}${isCur ? " (current)" : ". Double-click to switch"}`,
+          ...branchHandlers(sel),
+        },
+        h("span", null, `${isCur ? "✓ " : ""}${depth === 2 ? name.slice(name.indexOf("/") + 1) : name}`),
+        ab.length ? h("span", { class: "ab" }, ab.join(" ")) : null,
+      ),
     );
   };
 
@@ -102,19 +138,44 @@ export function renderTree(app: App): HTMLElement {
   if (!names.length) add(h("li", { class: "d1 muted" }, h("span", null, filter ? "no match" : "no branches")));
 
   // Remotes
-  add(head("Remotes", refs.remotes.length));
+  const remotesHead = head("Remotes", refs.remotes.length);
+  remotesHead.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    app.store.set({ contextMenu: { x: e.clientX, y: e.clientY, items: [{ label: "Add remote…", onClick: () => app.openRemoteAdd() }] } });
+  });
+  remotesHead.title = "Right-click to add a remote";
+  add(remotesHead);
   for (const r of refs.remotes) {
     const list = refs.remoteBranches.filter((b) => b.name.startsWith(`${r}/`) && matches(b.name));
     const open = isOpen(`remote:${r}`, false);
-    add(foldRow(`remote:${r}`, r, list.length, open));
+    const row = foldRow(`remote:${r}`, r, list.length, open);
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      app.store.set({
+        contextMenu: {
+          x: e.clientX,
+          y: e.clientY,
+          items: [
+            { label: "Fetch", onClick: () => app.fetch() },
+            { label: "Copy URL", onClick: () => void app.copyRemoteUrl(r) },
+            { label: "Add remote…", onClick: () => app.openRemoteAdd() },
+            { label: `Remove remote ${r}…`, danger: true, onClick: () => app.remoteRemove(r) },
+          ],
+        },
+      });
+    });
+    add(row);
     if (!open) continue;
     for (const b of list.slice(0, MAX_ROWS)) {
       const sel: BranchSel = { name: b.name, remote: true };
       add(
-        h(
-          "li",
-          { class: cls("d2", "branch", isSelected(sel) && "sel"), title: `${b.name}. Double-click to check out as a local branch`, ...branchHandlers(sel) },
-          h("span", null, b.name.slice(r.length + 1)),
+        branchRowOf(
+          sel,
+          h(
+            "li",
+            { class: cls("d2", "branch", isSelected(sel) && "sel"), title: `${b.name}. Double-click to check out as a local branch`, ...branchHandlers(sel) },
+            h("span", null, b.name.slice(r.length + 1)),
+          ),
         ),
       );
     }
@@ -129,19 +190,71 @@ export function renderTree(app: App): HTMLElement {
     const open = isOpen("tags", false);
     add(foldRow("tags", `${tags.length} tags`, tags.length, open));
     if (open) {
-      for (const t of tags.slice(0, MAX_ROWS)) add(h("li", { class: "d2", title: t.sha }, h("span", null, t.name)));
+      for (const t of tags.slice(0, MAX_ROWS)) {
+        add(
+          h(
+            "li",
+            {
+              class: "d2 branch",
+              title: `${t.name} → ${t.sha}`,
+              oncontextmenu: (e: MouseEvent) => {
+                e.preventDefault();
+                const items = [
+                  { label: "New branch from here…", onClick: () => app.openNewBranch(t.name) },
+                  { label: "Push tag to origin", onClick: () => app.tagPush(t.name) },
+                  { label: "Copy name", onClick: () => void navigator.clipboard?.writeText(t.name) },
+                  { label: "Delete tag…", danger: true, onClick: () => app.tagDelete(t.name, false) },
+                  { label: "Delete on remote…", danger: true, onClick: () => app.tagDelete(t.name, true) },
+                ];
+                if (app.isBusy()) for (const it of items) it.onClick = () => app.toast("Repository is busy", "error");
+                app.store.set({ contextMenu: { x: e.clientX, y: e.clientY, items } });
+              },
+            },
+            h("span", null, t.name),
+          ),
+        );
+      }
       if (tags.length > MAX_ROWS) add(more(tags.length - MAX_ROWS));
     }
   } else add(h("li", { class: "d1 muted" }, h("span", null, "none")));
 
   // Stashes
   add(head("Stashes", refs.stashes.length));
-  for (const st of refs.stashes.filter((x) => matches(x.message))) add(h("li", { class: "d1", title: st.ref }, h("span", null, st.message)));
+  for (const st of refs.stashes.filter((x) => matches(x.message))) {
+    add(
+      onRowDoubleClick(h(
+        "li",
+        {
+          class: "d1 branch",
+          title: `${st.ref}. Double-click to show its changes`,
+          oncontextmenu: (e: MouseEvent) => {
+            e.preventDefault();
+            const busyItems = app.isBusy();
+            const items = [
+              { label: "Apply", onClick: () => app.stashApply(st.ref, false) },
+              { label: "Pop (apply and drop)", onClick: () => app.stashApply(st.ref, true) },
+              { label: "Show changes", onClick: () => void app.stashShow(st.ref) },
+              { label: "Drop…", danger: true, onClick: () => app.stashDrop(st.ref, st.message) },
+            ];
+            if (busyItems) for (const it of items) it.onClick = () => app.toast("Repository is busy", "error");
+            app.store.set({ contextMenu: { x: e.clientX, y: e.clientY, items } });
+          },
+        },
+        h("span", null, st.message),
+      ), `stash:${st.ref}`, () => void app.stashShow(st.ref)),
+    );
+  }
   if (!refs.stashes.length) add(h("li", { class: "d1 muted" }, h("span", null, "none")));
 
   // Submodules
-  add(head("Submodules", refs.submodules.length));
-  for (const sm of refs.submodules.filter(matches)) add(h("li", { class: "d1" }, h("span", null, sm)));
+  const subHead = head("Submodules", refs.submodules.length);
+  const subMenu = (e: MouseEvent) => {
+    e.preventDefault();
+    app.store.set({ contextMenu: { x: e.clientX, y: e.clientY, items: [{ label: "Init & update all (recursive)", onClick: () => app.submoduleUpdate() }] } });
+  };
+  if (refs.submodules.length) subHead.addEventListener("contextmenu", subMenu);
+  add(subHead);
+  for (const sm of refs.submodules.filter(matches)) add(h("li", { class: "d1 branch", title: "Right-click: init & update", oncontextmenu: subMenu }, h("span", null, sm)));
   if (!refs.submodules.length) add(h("li", { class: "d1 muted" }, h("span", null, "none")));
 
   return tree;

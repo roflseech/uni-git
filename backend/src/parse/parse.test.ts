@@ -4,6 +4,7 @@ import { diffForNewFile, parseUnifiedDiff } from "./diff.js";
 import { parseLog, parseRefs, parseStashes, parseSubmodules } from "./log.js";
 import { progressStep } from "../jobs.js";
 import { isRelevant } from "../watcher.js";
+import { classify } from "../askpass.js";
 
 const NUL = "\0";
 
@@ -139,6 +140,14 @@ describe("helpers", () => {
     expect(progressStep("remote: Counting objects: 12% (1/8)\r")).toBe("Counting objects 12%");
     expect(progressStep("Receiving objects:  42% (100/238), 1.2 MiB | 1.1 MiB/s\r")).toBe("Receiving objects 42%");
     expect(progressStep("warning: something")).toBeUndefined();
+  });
+
+  it("classify recognises git and ssh prompts", () => {
+    expect(classify("Username for 'https://github.com': ")).toBe("username");
+    expect(classify("Password for 'https://x@github.com': ")).toBe("password");
+    expect(classify("Enter passphrase for key '/home/u/.ssh/id_ed25519': ")).toBe("passphrase");
+    expect(classify("The authenticity of host 'gitlab.example.net (1.2.3.4)' can't be established.\nED25519 key fingerprint is SHA256:abc.\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ")).toBe("hostkey");
+    expect(classify("Something else: ")).toBe("other");
   });
 
   it("isRelevant filters .git noise", () => {

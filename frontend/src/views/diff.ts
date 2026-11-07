@@ -1,12 +1,23 @@
 import type { DiffHunk, DiffLine, FileDiff } from "@epic-git/shared";
 import { cls, h } from "../dom.js";
 import type { DiffMode } from "../state.js";
+import { langForPath, tokenize, type Lang } from "../highlight.js";
+
+/** Highlighting is skipped for very large diffs to keep rendering instant. */
+const HIGHLIGHT_MAX_LINES = 6000;
+let currentLang: Lang = "text";
 
 /**
  * Read-only diff viewer. Every hunk is one CSS grid whose cells are the line numbers and texts, so the
  * columns stay aligned across lines. Side-by-side pairs deletions with additions; inline lists them in order.
  */
-export function renderDiff(diff: FileDiff | null, mode: DiffMode, loading: boolean): HTMLElement {
+export interface HunkAction {
+  label: string;
+  disabled: boolean;
+  onClick: (hunkIndex: number) => void;
+}
+
+export function renderDiff(diff: FileDiff | null, mode: DiffMode, loading: boolean, hunkAction?: HunkAction): HTMLElement {
   const box = h("div", { class: cls("diff", mode === "inline" && "inline") });
   if (loading && !diff) {
     box.append(h("div", { class: "empty" }, "Loading diff…"));
@@ -30,8 +41,19 @@ export function renderDiff(diff: FileDiff | null, mode: DiffMode, loading: boole
   }
   if (diff.note) box.append(h("div", { class: "hunk" }, diff.note));
 
+  const total = diff.hunks.reduce((n, hk) => n + hk.lines.length, 0);
+  currentLang = total <= HIGHLIGHT_MAX_LINES ? langForPath(diff.path) : "text";
+
   for (const hunk of diff.hunks) {
-    box.append(h("div", { class: "hunk" }, hunk.header));
+    const index = diff.hunks.indexOf(hunk);
+    box.append(
+      h(
+        "div",
+        { class: "hunk" },
+        h("span", { class: "hdr" }, hunk.header),
+        hunkAction ? h("button", { class: "btn small", disabled: hunkAction.disabled, onclick: () => hunkAction.onClick(index) }, hunkAction.label) : null,
+      ),
+    );
     const grid = h("div", { class: "rows" });
     if (mode === "inline") renderInline(hunk, grid);
     else renderSide(hunk, grid);
@@ -48,7 +70,7 @@ function num(n: number | undefined, klass?: string): HTMLElement {
 function text(line: DiffLine | undefined): HTMLElement {
   if (!line) return h("div", { class: "pad" });
   const klass = line.t === "add" ? "add" : line.t === "del" ? "del" : "ctx";
-  const el = h("div", { class: klass }, line.text);
+  const el = h("div", { class: klass }, ...(currentLang === "text" ? [line.text] : tokenize(line.text, currentLang).map((tk) => (tk.t === "p" ? tk.text : h("span", { class: `tok-${tk.t}` }, tk.text)))));
   if (line.noNewline) el.append(h("span", { class: "nonl", title: "No newline at end of file" }, " ⏎"));
   return el;
 }

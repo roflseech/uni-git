@@ -5,6 +5,14 @@
 import { App } from "./app.js";
 import { hasShell } from "./session.js";
 
+// Apply the last known theme before the first paint; the backend's setting confirms or corrects it later.
+try {
+  const t = localStorage.getItem("epic-git.theme");
+  if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+} catch {
+  /* storage unavailable */
+}
+
 const WINDOW_LOGICAL = { width: 1180, height: 760 };
 
 const root = document.getElementById("app");

@@ -36,11 +36,14 @@ const KEEP_FINISHED = 40;
 
 export interface JobEvents {
   job: [JobInfo];
+  cancel: [string];
   log: [string, string];
   repoChanged: [string];
 }
 
 export class JobManager extends EventEmitter<JobEvents> {
+  /** Extra environment for every git process of a job (askpass wiring); set by the server once it knows its port. */
+  jobEnv: (jobId: string) => Record<string, string> = () => ({});
   private jobs = new Map<string, Job>();
   private queues = new Map<string, Job[]>();
   private running = new Map<string, Job>();
@@ -95,6 +98,7 @@ export class JobManager extends EventEmitter<JobEvents> {
         this.appendLog(job, `$ git ${args.join(" ")}\n`);
         return git(args, {
           ...opts,
+          env: { ...this.jobEnv(info.id), ...opts.env },
           cwd: job.target.path,
           signal: controller.signal,
           onStderr: (chunk) => {
@@ -144,6 +148,7 @@ export class JobManager extends EventEmitter<JobEvents> {
   cancel(id: string): boolean {
     const job = this.jobs.get(id);
     if (!job) return false;
+    this.emit("cancel", id);
     if (job.info.state === "queued") {
       const q = this.queues.get(job.target.id);
       if (q) {
@@ -171,6 +176,11 @@ export class JobManager extends EventEmitter<JobEvents> {
 
   active(): JobInfo[] {
     return this.list().filter((j) => j.state === "queued" || j.state === "running");
+  }
+
+  info(id: string): JobInfo | undefined {
+    const j = this.jobs.get(id);
+    return j ? { ...j.info } : undefined;
   }
 
   logOf(id: string): string | undefined {
@@ -209,6 +219,7 @@ function firstLine(s: string): string {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  const meaningful = lines.find((l) => /^(fatal|error)/i.test(l)) ?? lines[0] ?? s;
+  const meaningful =
+    lines.find((l) => /^(fatal|error)/i.test(l)) ?? lines.find((l) => !/^(warning|hint):/i.test(l)) ?? lines[0] ?? s;
   return meaningful.replace(/^(fatal|error):\s*/i, "");
 }
