@@ -23,9 +23,9 @@ import type {
   RepoRefs,
   RepoStatus,
   Snapshot,
-} from "@epic-git/shared";
+} from "@uni-git/shared";
 import { GitError, git, gitOut } from "./git.js";
-import { MERGE_TITLES, mergePlan } from "@epic-git/shared";
+import { MERGE_TITLES, mergePlan } from "@uni-git/shared";
 import type { JobContext, JobManager, JobTarget } from "./jobs.js";
 import { diffForNewFile, looksBinary, parseUnifiedDiff } from "./parse/diff.js";
 import { LOG_FORMAT, REFS_FORMAT, parseLog, parseRefs, parseStashes, parseSubmodules } from "./parse/log.js";
@@ -419,7 +419,7 @@ export class RepoService {
       }
       if (stash) {
         ctx.setStep("stash changes");
-        const r = await ctx.git(["stash", "push", "--include-untracked", "-m", `epic-git: before switching to ${local}`]);
+        const r = await ctx.git(["stash", "push", "--include-untracked", "-m", `uni-git: before switching to ${local}`]);
         stashed = !/No local changes to save/i.test(r.stdout + r.stderr);
       }
       ctx.setStep("switch");

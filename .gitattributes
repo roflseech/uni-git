@@ -1,0 +1,5 @@
+# LF everywhere, also in Windows checkouts with core.autocrlf=true: shell scripts run on macOS/Linux, and the backend
+# writes scripts (askpass.js with a shebang) from template strings in its sources.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.png binary

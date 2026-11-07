@@ -10,7 +10,7 @@ describe("mergePlan", () => {
 
   it("update main and merge, with stash", () => {
     expect(planCommands(mergePlan("force-main", { ...ctx, stash: true }))).toEqual([
-      'git stash push --include-untracked -m "epic-git: before update main and merge"',
+      'git stash push --include-untracked -m "uni-git: before update main and merge"',
       "git fetch --progress origin master:master",
       "git merge --no-edit master",
       "git stash pop",

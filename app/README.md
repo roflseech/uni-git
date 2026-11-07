@@ -29,4 +29,15 @@ are excluded by `cli.extensionsExclude`).
 - Dev mode (`npm run dev`) runs the shell with `--enable-extensions=false` and the backend under `tsx watch` instead,
   with `--data-dir ../app/data` so both modes share the same `data/`.
 
-`npm run dist` at the repo root builds everything and runs `neu build` → `app/dist/epic-git/`.
+`npm run dist` at the repo root builds everything and runs `neu build` → `app/dist/uni-git/`.
+
+## Version and updates
+
+- `version` here stays at major.minor.0 (`package.json` gives major.minor): `neu build` writes it into the Windows exe,
+  so a fixed value keeps the exe byte-identical across releases and the updater never downloads it again. The full
+  version (`0.1.<build>`) lives in the backend bundle (`UNI_GIT_VERSION` → esbuild `define`, see `backend/src/version.ts`).
+- Neutralino's own `updater` API is not used: it rewrites only `resources.neu`, in place and unverified, and never the
+  backend in `extensions/`. The backend updates every file (`backend/src/updater.ts`); replacing files while the app runs
+  is fine because the shell keeps `resources.neu` in memory and a running exe can be renamed on Windows.
+- A restart for an update must stop the backend before `Neutralino.app.restartProcess()`: the new shell's backend exits at
+  once while an old one still answers on `data/session.json`.

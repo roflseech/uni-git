@@ -1,6 +1,6 @@
 {
-  "name": "epic-git",
-  "version": "0.0.1",
+  "name": "uni-git",
+  "version": "0.1.0",
   "private": true,
   "description": "Fast-starting cross-platform Git client: Neutralino shell + Node/TS backend + TS frontend",
   "workspaces": [
@@ -17,7 +17,10 @@
     "dev": "npm run build -w shared && concurrently -k -n frontend,backend,app \"npm run dev -w frontend\" \"npm run dev -w backend\" \"npm run neu:run -- -- --enable-extensions=false --window-enable-inspector=true\"",
     "dist": "npm run build && npm run neu:build",
     "typecheck": "tsc -b shared backend frontend",
-    "test": "vitest run"
+    "test": "vitest run",
+    "release:build": "node tools/release/build.mjs",
+    "release:keygen": "node tools/release/keygen.mjs",
+    "release:test": "node tools/release/e2e-update.mjs"
   },
   "devDependencies": {
     "@neutralinojs/neu": "^11.0.0",

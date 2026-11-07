@@ -1,4 +1,4 @@
-import type { BranchRef, CommitInfo, RepoRefs, StashInfo, TagRef } from "@epic-git/shared";
+import type { BranchRef, CommitInfo, RepoRefs, StashInfo, TagRef } from "@uni-git/shared";
 
 /** Format string for `git log`; records end with \x1e, fields are separated by \0. */
 export const LOG_FORMAT = "%H%x00%P%x00%an%x00%ae%x00%at%x00%s%x00%b%x00%D%x1e";

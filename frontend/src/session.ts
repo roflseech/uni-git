@@ -2,8 +2,8 @@
  * Finds the running backend: the shell reads data/session.json written by the backend
  * (port + token); in a plain browser the values come from the URL (?port=..&token=..).
  */
-import type { SessionInfo } from "@epic-git/shared";
-import { APP_NAME } from "@epic-git/shared";
+import type { SessionInfo } from "@uni-git/shared";
+import { APP_NAME } from "@uni-git/shared";
 
 export interface Session {
   port: number;
@@ -106,7 +106,7 @@ async function ping(s: Session, expectPid?: number): Promise<boolean> {
   }
 }
 
-const LOCAL_KEY = "epic-git.session";
+const LOCAL_KEY = "uni-git.session";
 
 function readLocal(): Session | null {
   try {

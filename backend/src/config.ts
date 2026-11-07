@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { basename, join } from "node:path";
-import type { AppConfig, Group, RepoEntry } from "@epic-git/shared";
+import type { AppConfig, Group, RepoEntry } from "@uni-git/shared";
 
 export function newId(): string {
   return randomBytes(5).toString("hex");

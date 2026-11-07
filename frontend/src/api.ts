@@ -1,4 +1,4 @@
-import type { Api, ApiRoute, ServerEvent } from "@epic-git/shared";
+import type { Api, ApiRoute, ServerEvent } from "@uni-git/shared";
 import type { Session } from "./session.js";
 
 export class ApiClient {
@@ -29,6 +29,20 @@ export class ApiClient {
       throw new Error(err.error ?? `${route} failed (${r.status})`);
     }
     return data as Api[R]["res"];
+  }
+
+  /** Answers within timeoutMs? A refused connection takes about a second to fail on Windows, so a short timeout decides. */
+  async alive(timeoutMs = 200): Promise<boolean> {
+    try {
+      const r = await fetch(`http://127.0.0.1:${this.session.port}/ping`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${this.session.token}` },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      return r.ok;
+    } catch {
+      return false;
+    }
   }
 
   /** Fire-and-forget shutdown used while the window is closing. */

@@ -7,7 +7,7 @@ import { hasShell } from "./session.js";
 
 // Apply the last known theme before the first paint; the backend's setting confirms or corrects it later.
 try {
-  const t = localStorage.getItem("epic-git.theme");
+  const t = localStorage.getItem("uni-git.theme");
   if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
 } catch {
   /* storage unavailable */
@@ -25,8 +25,8 @@ if (hasShell()) {
   Neutralino.events.on("ready", async () => {
     // Neutralino window size is in physical pixels; match the logical size from the config on HiDPI screens.
     const dpr = window.devicePixelRatio;
-    if (dpr > 1.05 && !sessionStorage.getItem("epic-git.sized")) {
-      sessionStorage.setItem("epic-git.sized", "1");
+    if (dpr > 1.05 && !sessionStorage.getItem("uni-git.sized")) {
+      sessionStorage.setItem("uni-git.sized", "1");
       await Neutralino.window.setSize({
         width: Math.round(WINDOW_LOGICAL.width * dpr),
         height: Math.round(WINDOW_LOGICAL.height * dpr),

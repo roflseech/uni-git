@@ -8,8 +8,8 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { Api, ApiRoute, AppConfig, FolderGroup, GlobalSettingsView, ServerEvent, UiLayout } from "@epic-git/shared";
-import { API_VERSION, BUILT_IN_PRESETS, type TaskPreset } from "@epic-git/shared";
+import type { Api, ApiRoute, AppConfig, FolderGroup, GlobalSettingsView, ServerEvent, UiLayout } from "@uni-git/shared";
+import { API_VERSION, BUILT_IN_PRESETS, type TaskPreset } from "@uni-git/shared";
 import { ConfigStore, newId, normalizePath } from "./config.js";
 import { discoverRepos, isGitRepo } from "./discover.js";
 import { getGitExecutable, git, setGitExecutable } from "./git.js";
@@ -18,6 +18,7 @@ import { generateSshKey, listAccounts, listSshKeys, probeHosts, signOut, storeTo
 import { homedir } from "node:os";
 import { JobManager } from "./jobs.js";
 import { RepoService, enqueueClone } from "./repo.js";
+import { Updater } from "./updater.js";
 import { RepoWatcher } from "./watcher.js";
 
 type Handlers = { [K in ApiRoute]: (body: Api[K]["req"]) => Promise<Api[K]["res"]> | Api[K]["res"] };
@@ -34,6 +35,10 @@ class HttpError extends Error {
 
 export interface BackendOptions {
   dataDir: string;
+  /** folder of the installed app (shell binary, resources.neu, extensions/): what the updater replaces */
+  appDir: string;
+  /** version of this build (version.ts) */
+  version: string;
   token: string;
   startedAt: number;
   log: (msg: string) => void;
@@ -62,9 +67,16 @@ export class Backend {
   private hadClient = false;
   private orphanTimer: NodeJS.Timeout | null = null;
   private askpass: AskpassBroker | null = null;
+  private readonly updater: Updater;
 
   constructor(private readonly opts: BackendOptions) {
     this.config = new ConfigStore(opts.dataDir);
+    this.updater = new Updater({
+      appDir: opts.appDir,
+      version: opts.version,
+      log: opts.log,
+      onState: (update) => this.broadcast({ type: "update", update }),
+    });
     setGitExecutable(this.config.get().settings.gitPath);
     this.config.onChange((c) => {
       setGitExecutable(c.settings.gitPath);
@@ -102,6 +114,8 @@ export class Backend {
       this.http.listen(0, "127.0.0.1", () => {
         const addr = this.http.address() as AddressInfo;
         this.startAskpass(addr.port);
+        // first check a few seconds later, off the startup path
+        this.updater.start();
         resolvePort(addr.port);
       });
     });
@@ -131,6 +145,7 @@ export class Backend {
 
   close(): void {
     if (this.orphanTimer) clearTimeout(this.orphanTimer);
+    this.updater.stop();
     this.watcher.close();
     this.jobs.cancelAll();
     for (const c of this.clients) c.close();
@@ -276,7 +291,7 @@ export class Backend {
   private buildHandlers(): Handlers {
     const cfg = this.config;
     return {
-      "/ping": () => ({ pid: process.pid, startedAt: this.opts.startedAt, apiVersion: API_VERSION }),
+      "/ping": () => ({ pid: process.pid, startedAt: this.opts.startedAt, apiVersion: API_VERSION, version: this.opts.version }),
 
       "/config": () => cfg.get(),
 
@@ -581,6 +596,9 @@ export class Backend {
         openInEditor(requireDir(path), cfg.get().settings.editorCommand);
         return { ok: true };
       },
+
+      "/update/status": () => this.updater.get(),
+      "/update/check": () => this.updater.check(),
 
       "/shutdown": () => {
         setTimeout(() => this.opts.onShutdownRequest("requested by the shell"), 10);

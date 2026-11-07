@@ -18,7 +18,8 @@ import type {
   JobInfo,
   RepoRefs,
   RepoStatus,
-} from "@epic-git/shared";
+  UpdateState,
+} from "@uni-git/shared";
 
 export type View = "changes" | "commits";
 export type DiffMode = "side" | "inline";
@@ -175,6 +176,13 @@ export interface State {
   sideFilter: string;
   amend: boolean;
   collapsedDirs: Set<string>;
+
+  /** self-update state from the backend; null until it answered */
+  update: UpdateState | null;
+  /** "Later" was pressed for this version: its bar stays hidden for the rest of the session */
+  updateLater: string | null;
+  /** "Restart now" was pressed: the backend is stopping, the shell restarts */
+  restarting: boolean;
 }
 
 export function initialState(): State {
@@ -196,7 +204,7 @@ export function initialState(): State {
     selectedFiles: [],
     diff: null,
     diffLoading: false,
-    diffMode: (localStorage.getItem("epic-git.diffMode") as DiffMode | null) ?? "side",
+    diffMode: (localStorage.getItem("uni-git.diffMode") as DiffMode | null) ?? "side",
     commits: [],
     commitsHasMore: false,
     commitsLoading: false,
@@ -220,6 +228,9 @@ export function initialState(): State {
     sideFilter: "",
     amend: false,
     collapsedDirs: new Set(),
+    update: null,
+    updateLater: null,
+    restarting: false,
   };
 }
 

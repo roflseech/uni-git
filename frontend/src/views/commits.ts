@@ -3,7 +3,7 @@ import { cls, h, replaceChildren, setupSplitter } from "../dom.js";
 import { longDate, parseDecorations, shortDate } from "../format.js";
 import type { State } from "../state.js";
 import { renderDiff } from "./diff.js";
-import { findTaskCodes, taskLink, type UiLayout } from "@epic-git/shared";
+import { findTaskCodes, taskLink, type UiLayout } from "@uni-git/shared";
 
 /** Subject text with task codes turned into tracker chips (mockup 02, note 2). */
 function subjectWithCodes(app: App, text: string): (string | HTMLElement)[] {

@@ -3,7 +3,7 @@
  */
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { DiscoveredRepo } from "@epic-git/shared";
+import type { DiscoveredRepo } from "@uni-git/shared";
 
 export function isGitRepo(path: string): boolean {
   try {

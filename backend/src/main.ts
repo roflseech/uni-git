@@ -1,5 +1,5 @@
 /**
- * epic-git backend: a Node process next to the Neutralino shell.
+ * uni-git backend: a Node process next to the Neutralino shell.
  *
  * Starts a local HTTP/WS server with a random port and token, writes both to data/session.json for the
  * shell to read, and exits together with the shell (Neutralino extension link, parent watchdog, /shutdown).
@@ -9,10 +9,14 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import { API_VERSION, APP_NAME, type SessionInfo } from "@epic-git/shared";
+import { API_VERSION, APP_NAME, type SessionInfo } from "@uni-git/shared";
 import { Backend } from "./server.js";
+import { APP_VERSION } from "./version.js";
 
 const startedAt = Date.now();
+/** The bundle runs from <app>/extensions/backend/main.js; the installed app is two levels up. */
+const bundleDir = dirname(fileURLToPath(import.meta.url));
+const appDir = resolve(bundleDir, "../..");
 
 let logFile: string | null = null;
 
@@ -54,9 +58,8 @@ function argValue(name: string): string | undefined {
 
 /** data/ next to the app; falls back to the user profile when that folder is read-only (macOS /Applications). */
 function resolveDataDir(): string {
-  const explicit = argValue("--data-dir") ?? process.env["EPIC_GIT_DATA_DIR"];
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [explicit, resolve(here, "../../data")].filter((c): c is string => Boolean(c));
+  const explicit = argValue("--data-dir") ?? process.env["UNI_GIT_DATA_DIR"];
+  const candidates = [explicit, join(appDir, "data")].filter((c): c is string => Boolean(c));
   for (const c of candidates) {
     const dir = resolve(c);
     try {
@@ -177,6 +180,8 @@ async function main(): Promise<void> {
   let shellPid: number | null = null;
   const backend = new Backend({
     dataDir,
+    appDir,
+    version: APP_VERSION,
     token,
     startedAt,
     log,
@@ -192,7 +197,7 @@ async function main(): Promise<void> {
 
   const session: SessionInfo = { apiVersion: API_VERSION, port, token, pid: process.pid, startedAt };
   writeFileSync(sessionFile, JSON.stringify(session), "utf8");
-  log(`listening on 127.0.0.1:${port}, data in ${dataDir}, ${Date.now() - startedAt} ms after start`);
+  log(`${APP_NAME} ${APP_VERSION} listening on 127.0.0.1:${port}, data in ${dataDir}, ${Date.now() - startedAt} ms after start`);
 
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));

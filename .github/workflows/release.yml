@@ -1,0 +1,75 @@
+# Every push to main becomes a release: version <major>.<minor>.<run number> (major.minor from package.json), signed
+# latest.json, the app files and the installers. Installed copies pick it up at their next start (or within 4 hours)
+# and offer a restart. Pushes that only touch docs do not release.
+# Needs the repository secret UNI_GIT_SIGNING_KEY: the private key from `npm run release:keygen` (.keys/).
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "tools/win/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # tags and history: the release notes list the commits since the previous release
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download Neutralino binaries
+        run: npm run neu:update
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build and sign the release
+        id: build
+        env:
+          UNI_GIT_SIGNING_KEY: ${{ secrets.UNI_GIT_SIGNING_KEY }}
+        run: node tools/release/build.mjs --build-number ${{ github.run_number }}
+
+      - name: Smoke test of the built backend
+        run: npm run smoke -w backend
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.build.outputs.tag }}
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* --title "uni-git $VERSION" --notes-file release-notes.md --target "$GITHUB_SHA" --latest
+          fi
+
+      - name: Keep the last 10 releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 100 --json tagName,createdAt --jq 'sort_by(.createdAt) | reverse | .[10:] | .[].tagName' |
+            while read -r tag; do gh release delete "$tag" --yes --cleanup-tag; done

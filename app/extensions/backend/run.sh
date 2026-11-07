@@ -13,5 +13,5 @@ for candidate in \
     exec "$candidate" "$here/main.js" "$@"
   fi
 done
-echo "epic-git: node not found" >&2
+echo "uni-git: node not found" >&2
 exit 1

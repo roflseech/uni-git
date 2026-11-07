@@ -1,7 +1,10 @@
 {
   "$schema": "https://raw.githubusercontent.com/neutralinojs/neutralinojs/main/schemas/neutralino.config.schema.json",
-  "applicationId": "dev.epicgit.app",
-  "version": "0.0.1",
+  "applicationId": "dev.unigit.app",
+  "applicationName": "uni-git",
+  "author": "roflseech",
+  "description": "Easy Git client with Unity integrations",
+  "version": "0.1.0",
   "defaultMode": "window",
   "port": 0,
   "documentRoot": "/resources/",
@@ -24,7 +27,7 @@
   ],
   "modes": {
     "window": {
-      "title": "epic-git",
+      "title": "uni-git",
       "width": 1180,
       "height": 760,
       "minWidth": 800,
@@ -40,7 +43,7 @@
     }
   },
   "cli": {
-    "binaryName": "epic-git",
+    "binaryName": "uni-git",
     "resourcesPath": "/resources/",
     "extensionsPath": "/extensions/",
     "clientLibrary": "/client/neutralino.js",
@@ -51,7 +54,7 @@
   "enableExtensions": true,
   "extensions": [
     {
-      "id": "dev.epicgit.backend",
+      "id": "dev.unigit.backend",
       "commandWindows": "node \"${NL_PATH}/extensions/backend/main.js\"",
       "commandDarwin": "/bin/sh \"${NL_PATH}/extensions/backend/run.sh\"",
       "commandLinux": "/bin/sh \"${NL_PATH}/extensions/backend/run.sh\""

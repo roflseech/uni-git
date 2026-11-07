@@ -15,7 +15,7 @@ if (!existsSync(bundle)) {
   process.exit(2);
 }
 
-const root = mkdtempSync(join(tmpdir(), "epicgit-smoke-"));
+const root = mkdtempSync(join(tmpdir(), "unigit-smoke-"));
 const dataDir = join(root, "data");
 const work = join(root, "Work");
 mkdirSync(work);

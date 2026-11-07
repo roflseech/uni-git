@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import type { AccountInfo, SshKeyInfo } from "@epic-git/shared";
+import type { AccountInfo, SshKeyInfo } from "@uni-git/shared";
 import { git } from "./git.js";
 
 const DEFAULT_HOSTS = ["github.com", "gitlab.com", "bitbucket.org", "dev.azure.com"];
@@ -134,7 +134,7 @@ export async function generateSshKey(comment: string): Promise<SshKeyInfo> {
   let name = "id_ed25519";
   for (let i = 2; existsSync(join(dir, name)) || existsSync(join(dir, `${name}.pub`)); i++) name = `id_ed25519_${i}`;
   const file = join(dir, name);
-  const r = await runCapture("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", comment || "epic-git", "-f", file]);
+  const r = await runCapture("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", comment || "uni-git", "-f", file]);
   if (r.code !== 0) throw new Error((r.err || r.out).trim() || "ssh-keygen failed");
   const key = (await listSshKeys()).find((k) => k.file === `${file}.pub`);
   if (!key) throw new Error("key was generated but could not be read back");

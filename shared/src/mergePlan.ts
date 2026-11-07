@@ -32,7 +32,7 @@ export const MERGE_TITLES: Record<MergeMode, string> = {
 
 export function mergePlan(mode: MergeMode, c: MergeContext): MergeStep[] {
   const steps: MergeStep[] = [];
-  if (c.stash) steps.push({ kind: "stash", args: ["stash", "push", "--include-untracked", "-m", `epic-git: before ${MERGE_TITLES[mode]}`], label: "stash changes" });
+  if (c.stash) steps.push({ kind: "stash", args: ["stash", "push", "--include-untracked", "-m", `uni-git: before ${MERGE_TITLES[mode]}`], label: "stash changes" });
 
   if (mode === "main") {
     steps.push({ kind: "merge", args: ["merge", "--no-edit", c.main], label: `merge ${c.main} into ${c.current}` });

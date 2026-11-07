@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { FileChange } from "@epic-git/shared";
+import type { FileChange } from "@uni-git/shared";
 import { groupByPrefix, groupFiles, parseDecorations, repoNameFromUrl } from "./format.js";
 
 const ch = (path: string): FileChange => ({ path, kind: "M", area: "unstaged" });

@@ -1,4 +1,4 @@
-import type { FileChange, FileDiff } from "@epic-git/shared";
+import type { FileChange, FileDiff } from "@uni-git/shared";
 
 /** A unified diff containing only one hunk of the shown diff, for `git apply --cached [--reverse]`. */
 export function hunkPatch(diff: FileDiff, hunkIndex: number): string {
@@ -17,7 +17,7 @@ export function applyTheme(theme: string | undefined): void {
   if (t) document.documentElement.setAttribute("data-theme", t);
   else document.documentElement.removeAttribute("data-theme");
   try {
-    localStorage.setItem("epic-git.theme", t);
+    localStorage.setItem("uni-git.theme", t);
   } catch {
     /* optional */
   }

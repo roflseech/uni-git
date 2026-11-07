@@ -1,8 +1,8 @@
-import type { JobInfo } from "@epic-git/shared";
+import type { JobInfo } from "@uni-git/shared";
 import type { App } from "../app.js";
 import { cls, h } from "../dom.js";
 import { elapsed } from "../format.js";
-import { taskCodeFromBranch, taskLink } from "@epic-git/shared";
+import { taskCodeFromBranch, taskLink } from "@uni-git/shared";
 
 export function renderToolbar(app: App): HTMLElement[] {
   const s = app.state;

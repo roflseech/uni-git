@@ -3,7 +3,7 @@
  * in parallel. Every job has a log, a step label and can be cancelled (the running git command is killed).
  */
 import { EventEmitter } from "node:events";
-import type { JobInfo, JobState } from "@epic-git/shared";
+import type { JobInfo, JobState } from "@uni-git/shared";
 import { git, type GitResult, type GitRunOptions } from "./git.js";
 import { newId } from "./config.js";
 

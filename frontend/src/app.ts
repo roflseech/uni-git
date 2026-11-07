@@ -2,9 +2,9 @@
  * Application: state, backend calls, event handling and the top-level layout.
  * Views live in ./views and rebuild their container when their slice of state changes.
  */
-import type { AppConfig, AskpassRequest, CommitInfo, FileRef, JobInfo, RepoEntry, RepoRefs, RepoStatus, ServerEvent, Theme, UiLayout } from "@epic-git/shared";
+import type { AppConfig, AskpassRequest, CommitInfo, FileRef, JobInfo, RepoEntry, RepoRefs, RepoStatus, ServerEvent, Theme, UiLayout } from "@uni-git/shared";
 import { applyTheme, hunkPatch } from "./format.js";
-import { BUILT_IN_PRESETS, buildBranchName, sameTemplate, taskCodeFromBranch, type TaskTemplate } from "@epic-git/shared";
+import { BUILT_IN_PRESETS, buildBranchName, sameTemplate, taskCodeFromBranch, type TaskTemplate } from "@uni-git/shared";
 import { ApiClient } from "./api.js";
 import { h, replaceChildren, setupSplitter, watchDoubleClicks } from "./dom.js";
 import { findSession, hasShell } from "./session.js";
@@ -15,6 +15,7 @@ import { markSelectedBranch, renderSeg, renderTree } from "./views/sidebar.js";
 import { ChangesView } from "./views/changes.js";
 import { CommitsView } from "./views/commits.js";
 import { renderOverlay } from "./views/overlay.js";
+import { renderUpdateBar } from "./views/updatebar.js";
 
 const LOG_PAGE = 100;
 
@@ -43,6 +44,7 @@ export class App {
   api: ApiClient | null = null;
 
   private readonly elToolbar = h("div", { class: "toolbar" });
+  private readonly elUpdate = h("div", { class: "updatebar", hidden: true });
   private readonly elOps = h("div", { class: "ops", hidden: true });
   private readonly elSide = h("div", { class: "side" });
   private readonly elSeg = h("div", { class: "segwrap" });
@@ -57,6 +59,8 @@ export class App {
   private readonly commits: CommitsView;
   private mountedView: View | null = null;
   private renderedBusy = false;
+  /** what the update bar shows: rebuilt only when this changes, not on every job progress event */
+  private renderedUpdateKey = "";
   private readonly applySideWidth: (saved: number | undefined) => void;
   private opsTimer: number | null = null;
   private refreshTimer: number | null = null;
@@ -68,6 +72,7 @@ export class App {
     replaceChildren(
       root,
       this.elToolbar,
+      this.elUpdate,
       this.elOps,
       this.elLayout,
       this.elOverlay,
@@ -119,6 +124,7 @@ export class App {
       this.commits.applyLayout(ui);
       this.store.set({ config, boot: "ready" });
       void api.call("/askpass/pending", {}).then(({ requests }) => requests.forEach((r) => this.onAskpass(r))).catch(() => {});
+      void api.call("/update/status", {}).then((update) => this.store.set({ update })).catch(() => {});
       const first = config.lastRepoId && config.repos.some((r) => r.id === config.lastRepoId) ? config.lastRepoId : config.repos[0]?.id ?? null;
       if (first) await this.selectRepo(first);
       else this.setTitle(null);
@@ -160,6 +166,9 @@ export class App {
         break;
       case "askpassDone":
         this.dropAskpass(e.id);
+        break;
+      case "update":
+        this.store.set({ update: e.update });
         break;
       case "configChanged":
         applyTheme(e.config.settings.theme);
@@ -305,7 +314,7 @@ export class App {
   }
 
   private setTitle(repo: RepoEntry | null): void {
-    const title = repo ? `epic-git — ${repo.name}` : "epic-git";
+    const title = repo ? `uni-git — ${repo.name}` : "uni-git";
     document.title = title;
     if (hasShell()) void Neutralino.window.setTitle(title).catch(() => {});
   }
@@ -873,7 +882,7 @@ export class App {
   }
 
   setDiffMode(mode: "side" | "inline"): void {
-    localStorage.setItem("epic-git.diffMode", mode);
+    localStorage.setItem("uni-git.diffMode", mode);
     this.store.set({ diffMode: mode });
   }
 
@@ -1110,7 +1119,7 @@ export class App {
     this.openDialog({
       kind: "confirm",
       title: `Remove ${repo.name} from the list?`,
-      text: "The repository folder stays on disk; only the entry in epic-git is removed.",
+      text: "The repository folder stays on disk; only the entry in uni-git is removed.",
       okLabel: "Remove",
       danger: true,
       onOk: () => void this.api?.call("/repos/remove", { repoId: repo.id }).then((config) => this.store.set({ config })).catch((e: Error) => this.toast(e.message, "error")),
@@ -1412,7 +1421,7 @@ export class App {
   }
 
   generateSshKey(): void {
-    const comment = this.state.user?.email || "epic-git";
+    const comment = this.state.user?.email || "uni-git";
     void this.api
       ?.call("/ssh/generate", { comment })
       .then(({ key }) => {
@@ -1566,6 +1575,47 @@ export class App {
     this.store.set({ dialog: null });
   }
 
+  // ───────────── self-update ─────────────
+
+  /** Any git operation queued or running, quiet ones included: a restart would cancel it. */
+  anyJobActive(): boolean {
+    return this.state.jobs.some(isActive);
+  }
+
+  /**
+   * Starts the installed update. The backend goes first: the new shell starts its own backend, and that one exits at
+   * once while an old one still answers (one backend per data folder).
+   */
+  async restartForUpdate(): Promise<void> {
+    if (!hasShell() || this.state.restarting) return;
+    if (this.anyJobActive()) {
+      this.toast("Waiting for the running operations: restart when they finish", "info");
+      return;
+    }
+    this.store.set({ restarting: true });
+    const api = this.api;
+    if (api) {
+      api.close();
+      await api.call("/shutdown", {}).catch(() => {});
+      // it exits ~60 ms later and removes data/session.json on the way
+      for (let i = 0; i < 20 && (await api.alive()); i++) await new Promise((r) => window.setTimeout(r, 50));
+    }
+    await Neutralino.window.hide().catch(() => {});
+    await Neutralino.app.restartProcess();
+  }
+
+  async checkForUpdates(): Promise<void> {
+    if (!this.api) return;
+    try {
+      const update = await this.api.call("/update/check", {});
+      this.store.set({ update, updateLater: null });
+      if (update.status === "uptodate") this.toast(`uni-git ${update.current} is the latest version`, "info");
+      if (update.status === "error") this.toast(`Update check failed: ${update.message ?? ""}`, "error");
+    } catch (e) {
+      this.toast((e as Error).message, "error");
+    }
+  }
+
   toast(text: string, kind: "error" | "info", jobId?: string): void {
     const id = ++this.toastSeq;
     const t = jobId ? { id, text, kind, jobId } : { id, text, kind };
@@ -1609,6 +1659,15 @@ export class App {
     if (busyChanged || any("boot", "bootMessage", "config", "repoId", "status", "template", "connected", "stale", "view")) {
       replaceChildren(this.elToolbar, renderToolbar(this));
     }
+    const u = s.update;
+    const updateKey = JSON.stringify([u?.status, u?.available, u?.message, s.updateLater, s.restarting, this.anyJobActive()]);
+    if (updateKey !== this.renderedUpdateKey) {
+      this.renderedUpdateKey = updateKey;
+      const bar = renderUpdateBar(this);
+      this.elUpdate.hidden = bar.length === 0;
+      this.elUpdate.classList.toggle("warn", u?.status === "blocked");
+      replaceChildren(this.elUpdate, bar);
+    }
     if (any("jobs", "logJobId", "jobLogs")) {
       const active = s.jobs.filter(isActive);
       const visible = active.filter((j) => !j.quiet || (j.startedAt !== undefined && Date.now() - j.startedAt > 600));
@@ -1640,7 +1699,7 @@ export class App {
       this.changes.update(changed, false);
       this.commits.update(changed, false);
     }
-    if (any("openMenu", "menuHover", "contextMenu", "dialog", "toasts", "logJobId", "jobLogs", "jobs", "config", "repoId", "status")) {
+    if (any("openMenu", "menuHover", "contextMenu", "dialog", "toasts", "logJobId", "jobLogs", "jobs", "config", "repoId", "status", "update")) {
       // Dialogs are rebuilt on every keystroke: remember which field had the focus (by position) and the caret, then restore.
       const active = document.activeElement;
       const fields = () => [...this.elOverlay.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select")];

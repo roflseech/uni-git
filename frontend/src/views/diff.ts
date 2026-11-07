@@ -1,4 +1,4 @@
-import type { DiffHunk, DiffLine, FileDiff } from "@epic-git/shared";
+import type { DiffHunk, DiffLine, FileDiff } from "@uni-git/shared";
 import { cls, h } from "../dom.js";
 import type { DiffMode } from "../state.js";
 import { langForPath, tokenize, type Lang } from "../highlight.js";

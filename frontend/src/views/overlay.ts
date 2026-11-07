@@ -1,8 +1,9 @@
-import type { AccountInfo, Group, RepoAuthView, RepoEntry, SshKeyInfo, TaskTemplate } from "@epic-git/shared";
-import { BUILT_IN_PRESETS, buildBranchName, commitPrefix, mergePlan, planCommands, taskLink } from "@epic-git/shared";
+import type { AccountInfo, Group, RepoAuthView, RepoEntry, SshKeyInfo, TaskTemplate } from "@uni-git/shared";
+import { BUILT_IN_PRESETS, buildBranchName, commitPrefix, mergePlan, planCommands, taskLink } from "@uni-git/shared";
 import type { App } from "../app.js";
 import { cls, h } from "../dom.js";
 import { repoNameFromUrl } from "../format.js";
+import { updateStatusText } from "./updatebar.js";
 
 /** Kind of the dialog rendered last time: inputs are focused only when a dialog has just opened, not on every keystroke re-render. */
 let prevDialogKind: string | null = null;
@@ -696,6 +697,8 @@ function dialog(app: App): HTMLElement {
       ),
       h("label", null, "Data folder"),
       h("div", { class: "val ro mono" }, v.dataDir),
+      h("label", null, "Version"),
+      versionRow(app),
     );
     const presetRow = (name: string, t: TaskTemplate, builtIn: boolean) =>
       h(
@@ -884,7 +887,7 @@ function dialog(app: App): HTMLElement {
           h("input", { class: "field mono", value: d.username, placeholder: "your login (GitHub accepts anything)", oninput: (e: Event) => app.updateDialog({ username: (e.target as HTMLInputElement).value }) }),
           h("label", null, "Token"),
           tokenInput,
-          h("div", { class: "hint" }, "Stored by Git Credential Manager in the OS credential store, the same place the browser login puts it. Nothing is written by epic-git itself."),
+          h("div", { class: "hint" }, "Stored by Git Credential Manager in the OS credential store, the same place the browser login puts it. Nothing is written by uni-git itself."),
         ),
         err,
       ),
@@ -1058,6 +1061,19 @@ function dialog(app: App): HTMLElement {
     else app.closeDialog();
   };
   return h("div", { class: "scrim", onmousedown: (e: MouseEvent) => e.target === e.currentTarget && dismiss() }, box);
+}
+
+/** Global Settings → General: running version, what the updater is doing, "Check now". */
+function versionRow(app: App): HTMLElement {
+  const u = app.state.update;
+  const busy = u?.status === "checking" || u?.status === "downloading";
+  return h(
+    "div",
+    { class: "withsrc" },
+    h("div", { class: "val ro mono" }, u?.current ?? "…"),
+    h("span", { class: "src upd", title: updateStatusText(u) }, updateStatusText(u)),
+    u && u.status !== "disabled" ? h("button", { class: "btn small", disabled: busy, onclick: () => void app.checkForUpdates() }, busy ? "Checking…" : "Check now") : null,
+  );
 }
 
 function toasts(app: App): HTMLElement | null {

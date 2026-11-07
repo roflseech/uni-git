@@ -1,4 +1,4 @@
-import type { ChangeKind, FileChange, RepoStatus } from "@epic-git/shared";
+import type { ChangeKind, FileChange, RepoStatus } from "@uni-git/shared";
 
 /**
  * Parses `git status --porcelain=v2 --branch -z --untracked-files=all` output.

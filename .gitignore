@@ -15,6 +15,11 @@ app/neutralinojs.log
 # user data of a running dev build (settings, cache, logs)
 data/
 
+# release signing key (tools/release/keygen.mjs) and release build output (tools/release/build.mjs)
+.keys/
+release/
+release-notes.md
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

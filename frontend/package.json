@@ -1,5 +1,5 @@
 {
-  "name": "@epic-git/frontend",
+  "name": "@uni-git/frontend",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@epic-git/shared": "*"
+    "@uni-git/shared": "*"
   },
   "devDependencies": {
     "@neutralinojs/lib": "^6.0.0",

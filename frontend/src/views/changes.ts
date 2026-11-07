@@ -1,10 +1,10 @@
-import type { FileChange, JobInfo, UiLayout } from "@epic-git/shared";
+import type { FileChange, JobInfo, UiLayout } from "@uni-git/shared";
 import type { App } from "../app.js";
 import { cls, h, onRowDoubleClick, replaceChildren, setupSplitter, watchDoubleClicks } from "../dom.js";
 import { baseName, groupFiles } from "../format.js";
 import type { FileSel, State } from "../state.js";
 import { renderDiff } from "./diff.js";
-import { commitPrefix, taskCodeFromBranch } from "@epic-git/shared";
+import { commitPrefix, INSTALL_COMMANDS, taskCodeFromBranch } from "@uni-git/shared";
 
 const KIND_CLASS: Record<string, string> = { A: "a", "?": "a", M: "m", T: "m", R: "m", C: "m", D: "d", U: "c" };
 
@@ -169,6 +169,11 @@ export class ChangesView {
 
     if (!st) {
       parts.push(h("div", { class: "empty" }, s.repoId ? "Loading status…" : s.boot === "ready" ? "Add a repository from the Repositories menu" : s.bootMessage));
+      if (s.boot === "failed") {
+        // the backend lives in its own file: if an update left it unable to start, the installer puts every file back
+        const command = typeof NL_OS === "string" && NL_OS === "Darwin" ? INSTALL_COMMANDS.mac : INSTALL_COMMANDS.windows;
+        parts.push(h("div", { class: "empty" }, "If it keeps failing, reinstall uni-git (settings stay):", h("div", { class: "mono reinstall" }, command)));
+      }
       replaceChildren(this.elFiles, parts);
       return;
     }

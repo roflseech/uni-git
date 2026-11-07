@@ -6,8 +6,40 @@ import type { TaskPreset, TaskTemplate } from "./tasks.js";
 export * from "./tasks.js";
 export * from "./mergePlan.js";
 
-export const APP_NAME = "epic-git";
+export const APP_NAME = "uni-git";
 export const API_VERSION = 1;
+
+/** GitHub repository whose releases the app installs and updates from (.github/workflows/release.yml publishes them). */
+export const RELEASE_REPO = "roflseech/uni-git";
+export const RELEASES_URL = `https://github.com/${RELEASE_REPO}/releases`;
+/** One-line installers; re-running one repairs an installation. */
+export const INSTALL_COMMANDS = {
+  windows: `irm ${RELEASES_URL}/latest/download/install.ps1 | iex`,
+  mac: `curl -fsSL ${RELEASES_URL}/latest/download/install.sh | sh`,
+} as const;
+
+/**
+ * Self-update (backend/src/updater.ts). disabled: development build, not an installed copy or a read-only folder;
+ * ready: the new files are already in place and take effect on restart; blocked: the update needs something the
+ * machine lacks (a newer Node.js).
+ */
+export type UpdateStatus = "disabled" | "idle" | "checking" | "downloading" | "ready" | "uptodate" | "blocked" | "error";
+
+export interface UpdateState {
+  /** version of the running app, e.g. "0.1.57"; development builds end in "-dev" */
+  current: string;
+  status: UpdateStatus;
+  /** why updates are off, what blocks the update or what failed */
+  message?: string;
+  /** newest version found */
+  available?: string;
+  /** commit subjects of the new version */
+  notes?: string[];
+  /** release page of the new version */
+  url?: string;
+  /** ms since epoch of the last finished check */
+  checkedAt?: number;
+}
 
 /** Written by the backend to data/session.json so the shell can find it. */
 export interface SessionInfo {
@@ -272,7 +304,8 @@ export type ServerEvent =
   | { type: "configChanged"; config: AppConfig }
   /** git or ssh inside a job needs input (password, passphrase, host key confirmation). */
   | { type: "askpass"; request: AskpassRequest }
-  | { type: "askpassDone"; id: string };
+  | { type: "askpassDone"; id: string }
+  | { type: "update"; update: UpdateState };
 
 export type AskpassKind = "username" | "password" | "passphrase" | "hostkey" | "other";
 
@@ -350,7 +383,7 @@ export interface ApiError {
 
 /** Request bodies (POST, JSON) and response bodies by route. */
 export interface Api {
-  "/ping": { req: Record<string, never>; res: { pid: number; startedAt: number; apiVersion: number } };
+  "/ping": { req: Record<string, never>; res: { pid: number; startedAt: number; apiVersion: number; version: string } };
   "/config": { req: Record<string, never>; res: AppConfig };
   "/config/select": { req: { repoId: string | null }; res: AppConfig };
   "/groups/scan": { req: { root: string }; res: { repos: DiscoveredRepo[] } };
@@ -446,6 +479,9 @@ export interface Api {
   "/jobs/log": { req: { jobId: string }; res: { log: string } };
   "/jobs/cancel": { req: { jobId: string }; res: { ok: boolean } };
   "/os/open-in-editor": { req: { path: string }; res: { ok: boolean } };
+  "/update/status": { req: Record<string, never>; res: UpdateState };
+  /** Checks now (downloads and installs a newer version); answers when the check is over. */
+  "/update/check": { req: Record<string, never>; res: UpdateState };
   "/shutdown": { req: Record<string, never>; res: { ok: boolean } };
 }
 

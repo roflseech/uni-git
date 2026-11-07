@@ -1,5 +1,5 @@
 {
-  "name": "@epic-git/backend",
+  "name": "@uni-git/backend",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
-    "@epic-git/shared": "*",
+    "@uni-git/shared": "*",
     "ws": "^8.18.0"
   },
   "devDependencies": {

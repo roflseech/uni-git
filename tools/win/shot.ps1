@@ -1,4 +1,4 @@
-# Drives the running epic-git window for UI checks without a human: optional click (physical pixels relative
+# Drives the running uni-git window for UI checks without a human: optional click (physical pixels relative
 # to the window rect, read them off a previous screenshot), optional typed keys, then a DPI-aware screenshot.
 #   powershell -ExecutionPolicy Bypass -File tools\win\shot.ps1 -Out shot.png
 #   powershell -ExecutionPolicy Bypass -File tools\win\shot.ps1 -Out shot.png -ClickX 263 -ClickY 147
@@ -22,8 +22,8 @@ public class W {
 [W]::SetProcessDPIAware() | Out-Null
 # Dev shell (app/bin) first, then the dist binary; -ProcId targets one instance when several windows are open.
 if ($ProcId -gt 0) { $p = Get-Process -Id $ProcId -ErrorAction SilentlyContinue }
-else { $p = @(Get-Process neutralino-win_x64 -ErrorAction SilentlyContinue) + @(Get-Process epic-git-win_x64 -ErrorAction SilentlyContinue) | Select-Object -First 1 }
-if (-not $p) { Write-Output "no epic-git window"; exit 1 }
+else { $p = @(Get-Process neutralino-win_x64 -ErrorAction SilentlyContinue) + @(Get-Process uni-git-win_x64 -ErrorAction SilentlyContinue) | Select-Object -First 1 }
+if (-not $p) { Write-Output "no uni-git window"; exit 1 }
 $h = $p.MainWindowHandle
 [W]::SetForegroundWindow($h) | Out-Null; Start-Sleep -Milliseconds 250
 $r = New-Object W+RECT; [W]::GetWindowRect($h, [ref]$r) | Out-Null
@@ -31,7 +31,7 @@ $r = New-Object W+RECT; [W]::GetWindowRect($h, [ref]$r) | Out-Null
 # (the user is working in another program), skip the input and only take the screenshot.
 $front = [W]::GetForegroundWindow() -eq $h
 if (-not $front -and ($ClickX -ge 0 -or $Keys -ne "")) {
-  Write-Output "SKIPPED input: the epic-git window is not in the foreground"
+  Write-Output "SKIPPED input: the uni-git window is not in the foreground"
   $ClickX = -1; $Keys = ""
 }
 if ($ClickX -ge 0 -and $Hover) {

@@ -6,16 +6,16 @@
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AskpassKind, AskpassRequest } from "@epic-git/shared";
+import type { AskpassKind, AskpassRequest } from "@uni-git/shared";
 import { newId } from "./config.js";
 
 /** The helper script. Runs under git's shell (MSYS sh on Windows, /bin/sh on macOS) thanks to the shebang. */
 const HELPER_SOURCE = `#!/usr/bin/env node
-// epic-git askpass helper: asks the running backend, which asks the user. Generated file, do not edit.
+// uni-git askpass helper: asks the running backend, which asks the user. Generated file, do not edit.
 const prompt = process.argv.slice(2).join(" ");
-const port = process.env.EPIC_GIT_ASKPASS_PORT;
-const token = process.env.EPIC_GIT_ASKPASS_TOKEN;
-const jobId = process.env.EPIC_GIT_ASKPASS_JOB || "";
+const port = process.env.UNI_GIT_ASKPASS_PORT;
+const token = process.env.UNI_GIT_ASKPASS_TOKEN;
+const jobId = process.env.UNI_GIT_ASKPASS_JOB || "";
 if (!port || !token) { process.exit(1); }
 fetch("http://127.0.0.1:" + port + "/askpass", {
   method: "POST",
@@ -78,9 +78,9 @@ export class AskpassBroker {
       SSH_ASKPASS_REQUIRE: "force",
       DISPLAY: process.env["DISPLAY"] ?? ":0",
       GIT_TERMINAL_PROMPT: "0",
-      EPIC_GIT_ASKPASS_PORT: String(this.port),
-      EPIC_GIT_ASKPASS_TOKEN: this.helperToken,
-      EPIC_GIT_ASKPASS_JOB: jobId,
+      UNI_GIT_ASKPASS_PORT: String(this.port),
+      UNI_GIT_ASKPASS_TOKEN: this.helperToken,
+      UNI_GIT_ASKPASS_JOB: jobId,
     };
   }
 

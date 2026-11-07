@@ -1,4 +1,4 @@
-import type { DiffHunk, DiffLine, FileDiff } from "@epic-git/shared";
+import type { DiffHunk, DiffLine, FileDiff } from "@uni-git/shared";
 
 const MAX_LINES = 20000;
 
