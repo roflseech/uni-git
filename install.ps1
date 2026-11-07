@@ -75,8 +75,8 @@ function Install-UniGit([switch]$DepsOnly) {
   }
 
   # 5. Start menu shortcut
+  $lnk = Join-Path ([Environment]::GetFolderPath("Programs")) "uni-git.lnk"
   if (-not $env:UNI_GIT_NO_SHORTCUT) {
-    $lnk = Join-Path ([Environment]::GetFolderPath("Programs")) "uni-git.lnk"
     $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
     $s.TargetPath = $exe
     $s.WorkingDirectory = $dir
@@ -86,7 +86,13 @@ function Install-UniGit([switch]$DepsOnly) {
   }
 
   Write-Host "uni-git $($m.version) is installed in $dir (Start menu: uni-git). It updates itself from now on." -ForegroundColor Green
-  Start-Process -FilePath $exe -WorkingDirectory $dir
+  # Start it the way the Start menu does, through Explorer: started from here it would attach to this console (its
+  # backend log lines would show up in this window) and, in an Administrator PowerShell, it would run as administrator.
+  if (-not $env:UNI_GIT_NO_SHORTCUT -and (Test-Path $lnk) -and (Get-Process explorer -ErrorAction SilentlyContinue)) {
+    Start-Process explorer.exe -ArgumentList "`"$lnk`""
+  } else {
+    Start-Process -FilePath $exe -WorkingDirectory $dir
+  }
 }
 
 Install-UniGit -DepsOnly:$DepsOnly
