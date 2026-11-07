@@ -4,9 +4,20 @@ import { cls, h, onRowDoubleClick, replaceChildren, setupSplitter, watchDoubleCl
 import { baseName, groupFiles } from "../format.js";
 import type { FileSel, State } from "../state.js";
 import { renderDiff } from "./diff.js";
-import { commitPrefix, INSTALL_COMMANDS, taskCodeFromBranch } from "@uni-git/shared";
+import { renderUnity } from "./unity.js";
+import { commitPrefix, INSTALL_COMMANDS, isUnityYamlPath, taskCodeFromBranch } from "@uni-git/shared";
 
 const KIND_CLASS: Record<string, string> = { A: "a", "?": "a", M: "m", T: "m", R: "m", C: "m", D: "d", U: "c" };
+
+/** "Preview" over the diff of a Unity scene/prefab: objects and properties instead of the YAML. */
+export function unityToggle(app: App): HTMLElement {
+  return h(
+    "label",
+    { class: "check", title: "Show the scene/prefab as objects and properties; untick for the raw YAML diff" },
+    h("input", { type: "checkbox", checked: app.state.unityPreview, onchange: (e: Event) => app.setUnityPreview((e.target as HTMLInputElement).checked) }),
+    "Preview",
+  );
+}
 
 /** Changes view: unstaged/staged trees on the left, diff + commit form on the right. Inputs persist across updates. */
 export class ChangesView {
@@ -115,10 +126,12 @@ export class ChangesView {
     const jobsChanged = changed.has("jobs") && this.jobsKey() !== this.shownJobsKey;
     if (any("status", "collapsedDirs", "repoId", "boot") || jobsChanged) this.renderFiles();
     else if (changed.has("selectedFile") || changed.has("selectedFiles")) this.markSelected();
-    if (any("selectedFile", "diffMode") || jobsChanged) this.renderDiffHead();
+    if (any("selectedFile", "diffMode", "unityPreview") || jobsChanged) this.renderDiffHead();
     const sel = s.selectedFile;
-    const bodyKey = `${sel?.area}:${sel?.kind}:${s.diffLoading && !s.diff}`;
-    if (any("diff", "diffMode") || jobsChanged || bodyKey !== this.shownBodyKey) this.renderDiffBody(bodyKey);
+    const unity = this.app.unityShown(sel?.path);
+    const bodyKey = `${sel?.area}:${sel?.kind}:${unity ? `unity:${sel?.path}` : s.diffLoading && !s.diff}`;
+    const bodyInputs: (keyof State)[] = unity ? ["unity", "unityLoading", "unityChoices"] : ["diff", "diffMode"];
+    if (any(...bodyInputs) || jobsChanged || bodyKey !== this.shownBodyKey) this.renderDiffBody(bodyKey);
     if (any("status", "jobs", "repoId", "amend", "boot")) this.updateButtons();
     if (changed.has("status")) void this.prefillMergeMessage();
     if (any("status", "template", "repoId")) this.insertTaskCode(false);
@@ -206,6 +219,7 @@ export class ChangesView {
     const app = this.app;
     const s = app.state;
     const all = files.map((f) => f.path);
+    const unityConflicts = area === "conflict" ? all.filter(isUnityYamlPath) : [];
     const actionAll =
       area === "unstaged"
         ? [
@@ -216,6 +230,9 @@ export class ChangesView {
         : area === "staged"
           ? h("button", { class: "btn small", disabled: busy || !files.length, onclick: () => app.unstage(all) }, "Unstage all")
           : [
+              unityConflicts.length
+                ? h("button", { class: "btn small", disabled: busy, title: `Run UnityYAMLMerge on ${unityConflicts.length} scene/prefab file(s): what it merges cleanly is staged`, onclick: () => app.yamlMerge(unityConflicts) }, "UnityYAMLMerge")
+                : null,
               h("button", { class: "btn small", disabled: busy || !files.length, onclick: () => app.resolveConflict(all, "ours") }, "Take ours"),
               h("button", { class: "btn small", disabled: busy || !files.length, onclick: () => app.resolveConflict(all, "theirs") }, "Take theirs"),
               h("button", { class: "btn small", disabled: busy, onclick: () => app.abortOperation() }, `Abort ${s.status?.operation ?? ""}`),
@@ -363,10 +380,17 @@ export class ChangesView {
     const actions: HTMLElement[] = [];
     if (sel && sel.area === "unstaged") actions.push(h("button", { class: "btn small", disabled: busy, onclick: () => app.stage([sel.path]) }, "Stage file"));
     if (sel && sel.area === "staged") actions.push(h("button", { class: "btn small", disabled: busy, onclick: () => app.unstage([sel.path]) }, "Unstage file"));
+    const unity = !!sel && isUnityYamlPath(sel.path);
     replaceChildren(
       this.elDiffHead,
       h("span", { class: "file", title: sel?.path ?? "" }, sel ? sel.path : "No file selected"),
-      h("span", { class: "tools" }, modeBtn("Side by side", "side"), modeBtn("Inline", "inline"), ...actions),
+      h(
+        "span",
+        { class: "tools" },
+        unity ? unityToggle(app) : null,
+        unity && s.unityPreview ? null : [modeBtn("Side by side", "side"), modeBtn("Inline", "inline")],
+        ...actions,
+      ),
     );
   }
 
@@ -376,7 +400,15 @@ export class ChangesView {
     const s = app.state;
     const sel = s.selectedFile;
     const busy = app.isBusy();
+    const sameBody = this.shownBodyKey === key;
     this.shownBodyKey = key;
+    if (app.unityShown(sel?.path)) {
+      // picking a resolution re-renders the preview: it keeps its scroll position
+      const top = sameBody ? this.elDiff.scrollTop : 0;
+      replaceChildren(this.elDiff, renderUnity(app, s.unity?.path === sel?.path ? s.unity : null, s.unityLoading, s.unityChoices, { resolvable: sel?.area === "conflict", busy }));
+      this.elDiff.scrollTop = top;
+      return;
+    }
     // hunk staging only for modified tracked files (new/deleted/renamed files are all-or-nothing)
     const hunkAction =
       sel && s.diff && !s.diff.binary && (sel.area === "unstaged" || sel.area === "staged") && (sel.kind === "M" || sel.kind === "T")

@@ -3,9 +3,16 @@
  * mutations go through the job queue so the UI can show progress and lock the repository.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import type {
+  ChangeArea,
+  ChangeKind,
+  GlobalSettings,
+  UnityChoice,
+  UnityObjectRef,
+  UnityPreview,
   CommitDetails,
   ConfigScope,
   RepoSettings,
@@ -24,24 +31,32 @@ import type {
   RepoStatus,
   Snapshot,
 } from "@uni-git/shared";
-import { GitError, git, gitOut } from "./git.js";
-import { MERGE_TITLES, mergePlan } from "@uni-git/shared";
+import { GitError, git, gitOut, type GitResult } from "./git.js";
+import { MERGE_TITLES, isUnityYamlPath, mergePlan } from "@uni-git/shared";
 import type { JobContext, JobManager, JobTarget } from "./jobs.js";
 import { diffForNewFile, looksBinary, parseUnifiedDiff } from "./parse/diff.js";
 import { LOG_FORMAT, REFS_FORMAT, parseLog, parseRefs, parseStashes, parseSubmodules } from "./parse/log.js";
 import { parseNameStatus, parseStatus } from "./parse/status.js";
+import { emitUnityYaml, parseUnityYaml, type UnityFile } from "./parse/unityYaml.js";
+import { UnityNames, diffUnity, mergeUnity } from "./parse/unityMerge.js";
+import { YAML_MERGE_ARGS, defaultAttributesFile, findUnityYamlMerge, runTool, unityMergeEnv } from "./unity.js";
 
 const MAX_NEW_FILE_BYTES = 4 * 1024 * 1024;
 const LOG_PAGE_MAX = 500;
+/** a Unity scene/prefab version larger than this is not parsed for the preview */
+const MAX_UNITY_BYTES = 48 * 1024 * 1024;
 
 export class RepoService {
   private gitDir: string | null = null;
   private readonly cacheDir: string;
+  /** script guid → class name (null: not found), from the .cs.meta files of the repository */
+  private readonly scripts = new Map<string, string | null>();
 
   constructor(
     readonly entry: RepoEntry,
-    dataDir: string,
+    private readonly dataDir: string,
     private readonly jobs: JobManager,
+    private readonly globalSettings: () => GlobalSettings = () => ({}),
   ) {
     this.cacheDir = join(dataDir, "cache", entry.id);
   }
@@ -150,6 +165,16 @@ export class RepoService {
 
   async diff(file: FileRef): Promise<FileDiff> {
     if (file.area === "unstaged" && file.kind === "?") return this.newFileDiff(file.path);
+    if (file.area === "conflict" && isUnityYamlPath(file.path)) {
+      // UnityYAMLMerge leaves no conflict markers in the working copy: the raw view of a scene/prefab is ours → theirs
+      const r = await git(["diff", "--no-ext-diff", "-U3", `:2:${file.path}`, `:3:${file.path}`], { cwd: this.path, allowFailure: true, maxOutput: 8 * 1024 * 1024 });
+      const parsed = parseUnifiedDiff(r.stdout, file.path);
+      if (r.code === 0 && parsed.hunks.length) {
+        if (r.truncated) parsed.truncated = true;
+        parsed.note = "Raw YAML: ours (left) → theirs (right)";
+        return parsed;
+      }
+    }
     if (file.area === "conflict") return this.newFileDiff(file.path, "Conflicted file, working copy with markers");
 
     const args = ["diff", "--no-ext-diff", "-U3", "-M"];
@@ -232,6 +257,187 @@ export class RepoService {
     const parsed = parseUnifiedDiff(r.stdout, path);
     if (r.truncated) parsed.truncated = true;
     return parsed;
+  }
+
+  // ───────────── Unity scenes / prefabs ─────────────
+
+  /** A blob (`HEAD:path`, `:2:path`…), undefined when it does not exist. */
+  private async blob(rev: string): Promise<string | undefined> {
+    const r = await git(["cat-file", "blob", rev], { cwd: this.path, allowFailure: true, maxOutput: MAX_UNITY_BYTES });
+    if (r.truncated) throw new Error(`Too large to preview (over ${MAX_UNITY_BYTES >> 20} MB)`);
+    return r.code === 0 ? r.stdout : undefined;
+  }
+
+  private async workingText(path: string): Promise<string | undefined> {
+    const full = join(this.path, path);
+    try {
+      if ((await stat(full)).size > MAX_UNITY_BYTES) throw new Error(`Too large to preview (over ${MAX_UNITY_BYTES >> 20} MB)`);
+      return await readFile(full, "utf8");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw e;
+    }
+  }
+
+  /** Index stages of a conflicted file: base (absent when both added it), ours, theirs. */
+  private async stages(path: string): Promise<[string | undefined, string | undefined, string | undefined]> {
+    const [b, o, t] = await Promise.all([1, 2, 3].map((n) => this.blob(`:${n}:${path}`)));
+    return [b, o, t];
+  }
+
+  /** UnityYAMLMerge for this repository, null when switched off or not installed. */
+  yamlMergeTool(): string | null {
+    const s = this.globalSettings();
+    return s.unityMerge === false ? null : findUnityYamlMerge(this.path, s.unityYamlMerge);
+  }
+
+  /**
+   * Objects and properties instead of text. Conflicted: merged from the index stages, with the conflicts left;
+   * otherwise the versions the text diff compares (index ↔ working copy, HEAD ↔ index, a commit ↔ its first parent).
+   */
+  async unityPreview(path: string, area?: ChangeArea, kind?: ChangeKind, sha?: string): Promise<UnityPreview> {
+    const result = (mode: UnityPreview["mode"], extra: Partial<UnityPreview> = {}): UnityPreview => ({ path, mode, objects: [], conflicts: [], total: 0, ...extra });
+    if (!isUnityYamlPath(path)) return result("diff", { error: "Not a Unity scene, prefab or asset" });
+    const parse = (text: string | undefined): UnityFile | undefined => (text === undefined ? undefined : parseUnityYaml(text));
+    try {
+      if (area === "conflict") {
+        const yamlMerge = this.yamlMergeTool();
+        const [b, o, t] = await this.stages(path);
+        if (o === undefined || t === undefined) return result("merge", { yamlMerge, error: `${o === undefined ? "Deleted on our side" : "Deleted on their side"} and changed on the other: take ours or theirs` });
+        const [bf, of, tf] = [parse(b), parse(o)!, parse(t)!];
+        const names = new UnityNames([of, tf, bf]);
+        const m = mergeUnity(bf, of, tf, names);
+        // what the merge brings into ours; conflicts hold ours until chosen
+        const objects = diffUnity(of, m.file, names);
+        await this.nameScripts(names, [...objects, ...m.conflicts]);
+        return result("merge", { yamlMerge, objects, conflicts: m.conflicts, total: of.docs.length });
+      }
+      let before: string | undefined;
+      let after: string | undefined;
+      if (sha) {
+        [before, after] = await Promise.all([this.blob(`${sha}^1:${path}`), this.blob(`${sha}:${path}`)]);
+      } else if (area === "staged") {
+        [before, after] = await Promise.all([kind === "A" ? undefined : this.blob(`HEAD:${path}`), kind === "D" ? undefined : this.blob(`:${path}`)]);
+      } else {
+        [before, after] = await Promise.all([kind === "?" ? undefined : this.blob(`:${path}`), kind === "D" ? undefined : this.workingText(path)]);
+      }
+      const [bf, af] = [parse(before), parse(after)];
+      const names = new UnityNames([af, bf]);
+      const objects = diffUnity(bf, af, names);
+      await this.nameScripts(names, objects);
+      return result("diff", { objects, total: af?.docs.length ?? 0 });
+    } catch (e) {
+      return result(area === "conflict" ? "merge" : "diff", { error: (e as Error).message });
+    }
+  }
+
+  /** Fills `script` of MonoBehaviours: the .cs.meta with the guid of their m_Script (git grep, cached). */
+  private async nameScripts(names: UnityNames, refs: UnityObjectRef[]): Promise<void> {
+    const want = refs.filter((r) => r.type === "MonoBehaviour" && !r.script);
+    const guids = [...new Set(want.map((r) => names.guidOf(r.fileId)).filter((g): g is string => !!g))];
+    const missing = guids.filter((g) => !this.scripts.has(g)).slice(0, 300);
+    if (missing.length) {
+      const r = await git(["grep", "-l", "-F", ...missing.flatMap((g) => ["-e", `guid: ${g}`]), "--", "*.cs.meta"], { cwd: this.path, allowFailure: true });
+      for (const g of missing) this.scripts.set(g, null);
+      for (const file of r.stdout.split(/\r?\n/).filter(Boolean).slice(0, 600)) {
+        try {
+          const g = /guid: ([0-9a-f]{32})/.exec(await readFile(join(this.path, file), "utf8"))?.[1];
+          if (g && this.scripts.has(g)) this.scripts.set(g, basename(file).replace(/\.cs\.meta$/i, ""));
+        } catch {
+          /* file vanished */
+        }
+      }
+    }
+    for (const r of want) {
+      const g = names.guidOf(r.fileId);
+      const name = g ? this.scripts.get(g) : null;
+      if (name) r.script = name;
+    }
+  }
+
+  /** Writes the merge of a conflicted Unity file with the given choices (every conflict needs one) and stages it. */
+  unityResolve(path: string, choices: Record<string, UnityChoice>): JobInfo {
+    return this.jobs.enqueue(
+      this.target,
+      `resolve ${basename(path)}`,
+      async (ctx) => {
+        const [b, o, t] = await this.stages(path);
+        if (o === undefined || t === undefined) throw new Error("One side deleted the file: take ours or theirs");
+        const [bf, of, tf] = [b === undefined ? undefined : parseUnityYaml(b), parseUnityYaml(o), parseUnityYaml(t)];
+        const m = mergeUnity(bf, of, tf, new UnityNames([of, tf, bf]), choices);
+        if (m.open) throw new Error(`${m.open} conflict${m.open === 1 ? "" : "s"} in ${basename(path)} still need a choice`);
+        // keep the line endings the working copy has (autocrlf)
+        const current = await this.workingText(path).catch(() => undefined);
+        await writeFile(join(this.path, path), emitUnityYaml({ ...m.file, eol: current?.includes("\r\n") ? "\r\n" : of.eol }));
+        ctx.log(`${path}: merged, ${m.conflicts.length} conflict${m.conflicts.length === 1 ? "" : "s"} resolved by choice`);
+        await ctx.git(["add", "--", path]);
+      },
+      true,
+    );
+  }
+
+  /** Runs UnityYAMLMerge on conflicted files; what it merges cleanly is written and staged, the rest stays conflicted. */
+  unityYamlMerge(paths: string[]): JobInfo {
+    return this.jobs.enqueue(this.target, `UnityYAMLMerge ${describePaths(paths)}`, async (ctx) => {
+      const tool = findUnityYamlMerge(this.path, this.globalSettings().unityYamlMerge);
+      if (!tool) throw new Error("UnityYAMLMerge not found: install the project's Unity version in Unity Hub or set its path in Global Settings");
+      const dir = await mkdtemp(join(tmpdir(), "unigit-yaml-"));
+      const merged: string[] = [];
+      const left: string[] = [];
+      try {
+        for (const path of paths) {
+          ctx.setStep(basename(path));
+          const [b, o, t] = await this.stages(path);
+          if (b === undefined || o === undefined || t === undefined) {
+            ctx.log(`${path}: added or deleted on one side, skipped`);
+            left.push(path);
+            continue;
+          }
+          const f = (name: string) => join(dir, `${name}${extname(path)}`);
+          await Promise.all([writeFile(f("base"), b), writeFile(f("theirs"), t), writeFile(f("ours"), o)]);
+          const r = await runTool(tool, [...YAML_MERGE_ARGS, f("base"), f("theirs"), f("ours"), f("merged")], ctx.signal);
+          ctx.log(`$ UnityYAMLMerge ${path} → exit ${r.code}\n${r.output.trim()}`);
+          if (r.code !== 0) {
+            left.push(path);
+            continue;
+          }
+          const out = await readFile(f("merged"), "utf8");
+          const current = await this.workingText(path).catch(() => undefined);
+          await writeFile(join(this.path, path), current?.includes("\r\n") ? out.replace(/\r?\n/g, "\r\n") : out);
+          await ctx.git(["add", "--", path]);
+          merged.push(path);
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true }).catch(() => {});
+      }
+      if (left.length) ctx.log(`left conflicted: ${left.join(", ")}`);
+      if (!merged.length) throw new Error(`UnityYAMLMerge could not merge ${left.length === 1 ? basename(left[0]!) : `${left.length} files`}: pick the resolutions in the preview`);
+    });
+  }
+
+  /**
+   * Environment for a git command that may merge: UnityYAMLMerge becomes git's merge driver for scenes/prefabs
+   * (nothing is written to the repository). {} when switched off or not installed.
+   */
+  private async mergeEnv(): Promise<Record<string, string>> {
+    const tool = this.yamlMergeTool();
+    if (!tool) return {};
+    const r = await git(["config", "--get", "core.attributesFile"], { cwd: this.path, allowFailure: true });
+    const own = r.code === 0 ? r.stdout.trim().replace(/^~(?=[\\/])/, homedir()) : "";
+    return unityMergeEnv(this.dataDir, tool, own || defaultAttributesFile());
+  }
+
+  /** Job log: which scenes/prefabs UnityYAMLMerge merged ("Auto-merging x" without a CONFLICT for x). */
+  private logUnityMerges(ctx: JobContext, r: GitResult, env: Record<string, string>): void {
+    if (!env.GIT_CONFIG_COUNT) return;
+    const out = `${r.stdout}\n${r.stderr}`;
+    const auto = [...out.matchAll(/^Auto-merging (.+)$/gm)].map((m) => m[1]!.trim()).filter(isUnityYamlPath);
+    if (!auto.length) return;
+    const conflicted = new Set([...out.matchAll(/^CONFLICT \([^)]*\): Merge conflict in (.+)$/gm)].map((m) => m[1]!.trim()));
+    const merged = auto.filter((p) => !conflicted.has(p));
+    const left = auto.filter((p) => conflicted.has(p));
+    if (merged.length) ctx.log(`UnityYAMLMerge merged ${merged.join(", ")}`);
+    if (left.length) ctx.log(`UnityYAMLMerge left conflicts in ${left.join(", ")}: the Changes view lists them object by object (Preview)`);
   }
 
   // ───────────── settings ─────────────
@@ -432,7 +638,7 @@ export class RepoService {
       }
       if (stashed) {
         ctx.setStep("restore changes");
-        await ctx.git(["stash", "pop"]);
+        await ctx.git(["stash", "pop"], { env: await this.mergeEnv() });
       }
     });
   }
@@ -476,7 +682,9 @@ export class RepoService {
 
   merge(branch: string): JobInfo {
     return this.jobs.enqueue(this.target, `merge ${branch}`, async (ctx) => {
-      const r = await ctx.git(["merge", "--no-edit", branch], { allowFailure: true });
+      const env = await this.mergeEnv();
+      const r = await ctx.git(["merge", "--no-edit", branch], { allowFailure: true, env });
+      this.logUnityMerges(ctx, r, env);
       if (r.code !== 0) {
         const conflicts = (await ctx.git(["diff", "--name-only", "--diff-filter=U"])).stdout.trim();
         if (conflicts) throw new Error(`Merge stopped with conflicts in ${conflicts.split(/\r?\n/).length} file(s), resolve them in Changes`);
@@ -561,7 +769,10 @@ export class RepoService {
         await this.discardAll(ctx);
         ctx.setStep("pull");
       }
-      await ctx.git(["pull", "--no-rebase", "--progress"]);
+      const env = await this.mergeEnv();
+      const r = await ctx.git(["pull", "--no-rebase", "--progress"], { allowFailure: true, env });
+      this.logUnityMerges(ctx, r, env);
+      if (r.code !== 0) throw new GitError(["pull"], r);
     });
   }
 
@@ -596,6 +807,8 @@ export class RepoService {
       // the same plan the UI previews on hover
       const steps = mergePlan(mode, { main, current, remote, stash });
       const conflicted = async () => (await ctx.git(["diff", "--name-only", "--diff-filter=U"])).stdout.trim().length > 0;
+      // scenes and prefabs merge with UnityYAMLMerge in every step that merges (merge, pull, stash pop)
+      const env = await this.mergeEnv();
       let stashed = false;
       let n = 0;
       for (const step of steps) {
@@ -607,14 +820,16 @@ export class RepoService {
           continue;
         }
         if (step.kind === "merge") {
-          const r = await ctx.git(step.args, { allowFailure: true });
+          const r = await ctx.git(step.args, { allowFailure: true, env });
+          this.logUnityMerges(ctx, r, env);
           if (r.code !== 0 || (await conflicted())) {
             const where = mode === "into-main" ? ` on ${main}; push was not done` : "";
             throw new Error(`Merge stopped with conflicts${where}, resolve them in Changes${stashed ? " (your stash is kept)" : ""}`);
           }
           continue;
         }
-        await ctx.git(step.args);
+        const r = await ctx.git(step.args, { env });
+        this.logUnityMerges(ctx, r, env);
       }
     });
   }
@@ -711,7 +926,9 @@ export class RepoService {
   cherryPick(shas: string[]): JobInfo {
     const title = shas.length === 1 ? `cherry-pick ${shas[0]?.slice(0, 7)}` : `cherry-pick ${shas.length} commits`;
     return this.jobs.enqueue(this.target, title, async (ctx) => {
-      const r = await ctx.git(["cherry-pick", ...shas], { allowFailure: true, env: { GIT_EDITOR: "true" } });
+      const env = await this.mergeEnv();
+      const r = await ctx.git(["cherry-pick", ...shas], { allowFailure: true, env: { ...env, GIT_EDITOR: "true" } });
+      this.logUnityMerges(ctx, r, env);
       if (r.code !== 0) throw new Error("Cherry-pick stopped with conflicts, resolve them in Changes");
     });
   }
@@ -730,7 +947,7 @@ export class RepoService {
 
   stashApply(ref: string, pop: boolean): JobInfo {
     return this.jobs.enqueue(this.target, `${pop ? "pop" : "apply"} ${ref}`, async (ctx) => {
-      const r = await ctx.git(["stash", pop ? "pop" : "apply", ref], { allowFailure: true });
+      const r = await ctx.git(["stash", pop ? "pop" : "apply", ref], { allowFailure: true, env: await this.mergeEnv() });
       if (r.code !== 0) {
         const why = (r.stderr + r.stdout).trim().split(/\r?\n/).find((l) => /error|conflict|exists/i.test(l)) ?? "";
         throw new Error(`Stash could not be applied cleanly${why ? `: ${why}` : ""}${pop ? " (the stash is kept)" : ""}`);

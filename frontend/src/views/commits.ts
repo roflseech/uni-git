@@ -3,7 +3,9 @@ import { cls, h, replaceChildren, setupSplitter } from "../dom.js";
 import { longDate, parseDecorations, shortDate } from "../format.js";
 import type { State } from "../state.js";
 import { renderDiff } from "./diff.js";
-import { findTaskCodes, taskLink, type UiLayout } from "@uni-git/shared";
+import { unityToggle } from "./changes.js";
+import { renderUnity } from "./unity.js";
+import { findTaskCodes, isUnityYamlPath, taskLink, type UiLayout } from "@uni-git/shared";
 
 /** Subject text with task codes turned into tracker chips (mockup 02, note 2). */
 function subjectWithCodes(app: App, text: string): (string | HTMLElement)[] {
@@ -102,8 +104,8 @@ export class CommitsView {
     if (any("details", "detailBranches", "selectedSha")) this.renderMeta();
     if (any("details")) this.renderFiles();
     else if (any("detailFile")) this.markFile();
-    if (any("detailFile", "diffMode")) this.renderDiffHead();
-    if (any("detailDiff", "diffMode") || (changed.has("detailFile") && !this.app.state.detailDiff)) this.renderDiff();
+    if (any("detailFile", "diffMode", "unityPreview")) this.renderDiffHead();
+    if (any("detailDiff", "diffMode", "detailUnity", "unityPreview") || (changed.has("detailFile") && (!this.app.state.detailDiff || this.app.unityShown(this.app.state.detailFile)))) this.renderDiff();
     if (any("details", "detailFile", "detailDiff", "selectedSha")) this.markLoading();
     if (force) {
       this.text.value = this.app.state.commitFilter.text;
@@ -304,11 +306,22 @@ export class CommitsView {
     const s = app.state;
     const modeBtn = (label: string, mode: "side" | "inline") =>
       h("button", { class: cls("btn small", s.diffMode === mode && "on"), onclick: () => app.setDiffMode(mode) }, label);
-    replaceChildren(this.elDiffHead, h("span", { class: "file" }, s.detailFile ?? ""), h("span", { class: "tools" }, modeBtn("Side by side", "side"), modeBtn("Inline", "inline")));
+    const unity = !!s.detailFile && isUnityYamlPath(s.detailFile);
+    replaceChildren(
+      this.elDiffHead,
+      h("span", { class: "file" }, s.detailFile ?? ""),
+      h("span", { class: "tools" }, unity ? unityToggle(app) : null, unity && s.unityPreview ? null : [modeBtn("Side by side", "side"), modeBtn("Inline", "inline")]),
+    );
   }
 
   private renderDiff(): void {
-    const s = this.app.state;
+    const app = this.app;
+    const s = app.state;
+    if (app.unityShown(s.detailFile)) {
+      const u = s.detailUnity?.path === s.detailFile ? s.detailUnity : null;
+      replaceChildren(this.elDiff, renderUnity(app, u, !u, {}, { resolvable: false, busy: false }));
+      return;
+    }
     replaceChildren(this.elDiff, renderDiff(s.detailDiff, s.diffMode, s.detailFile !== null && s.detailDiff === null));
   }
 }

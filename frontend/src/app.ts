@@ -2,9 +2,9 @@
  * Application: state, backend calls, event handling and the top-level layout.
  * Views live in ./views and rebuild their container when their slice of state changes.
  */
-import type { AppConfig, AskpassRequest, CommitInfo, FileRef, JobInfo, RepoEntry, RepoRefs, RepoStatus, ServerEvent, Theme, UiLayout } from "@uni-git/shared";
+import type { AppConfig, AskpassRequest, CommitInfo, FileRef, JobInfo, RepoEntry, RepoRefs, RepoStatus, ServerEvent, Theme, UiLayout, UnityChoice, UnityPreview } from "@uni-git/shared";
 import { applyTheme, hunkPatch } from "./format.js";
-import { BUILT_IN_PRESETS, buildBranchName, sameTemplate, taskCodeFromBranch, type TaskTemplate } from "@uni-git/shared";
+import { BUILT_IN_PRESETS, buildBranchName, isUnityYamlPath, sameTemplate, taskCodeFromBranch, type TaskTemplate } from "@uni-git/shared";
 import { ApiClient } from "./api.js";
 import { h, replaceChildren, setupSplitter, watchDoubleClicks } from "./dom.js";
 import { findSession, hasShell } from "./session.js";
@@ -212,6 +212,8 @@ export class App {
       selectedFile: null,
       selectedFiles: [],
       diff: null,
+      unity: null,
+      unityChoices: {},
       logBranch: null,
       commits: [],
       commitsHasMore: false,
@@ -221,6 +223,7 @@ export class App {
       detailBranches: null,
       detailFile: null,
       detailDiff: null,
+      detailUnity: null,
       openMenu: null,
       amend: false,
       collapsedDirs: new Set(),
@@ -248,7 +251,7 @@ export class App {
   }
 
   private clearRepo(): void {
-    this.store.set({ repoId: null, status: null, refs: null, commits: [], selectedFile: null, selectedFiles: [], logBranch: null, diff: null, details: null });
+    this.store.set({ repoId: null, status: null, refs: null, commits: [], selectedFile: null, selectedFiles: [], logBranch: null, diff: null, unity: null, unityChoices: {}, details: null, detailUnity: null });
     this.setTitle(null);
   }
 
@@ -306,7 +309,7 @@ export class App {
     if (!s.selectedFile) return;
     const match = listOf(s.selectedFile.area).find((f) => f.path === s.selectedFile?.path);
     if (match) void this.selectFile({ area: match.area, path: match.path, kind: match.kind }, true);
-    else this.store.set({ selectedFile: kept[0] ?? null, diff: null });
+    else this.store.set({ selectedFile: kept[0] ?? null, diff: null, unity: null, unityChoices: {} });
   }
 
   setView(view: View): void {
@@ -324,7 +327,7 @@ export class App {
   async selectFile(sel: FileSel | null, keepIfSame = false): Promise<void> {
     if (!this.api || !this.state.repoId) return;
     if (!sel) {
-      this.store.set({ selectedFile: null, selectedFiles: [], diff: null });
+      this.store.set({ selectedFile: null, selectedFiles: [], diff: null, unity: null, unityChoices: {} });
       return;
     }
     const prev = this.state.selectedFile;
@@ -334,6 +337,8 @@ export class App {
     const file0 = samePlace && prev.kind === sel.kind ? prev : sel;
     this.store.set({ selectedFile: file0, diffLoading: !same });
     if (!keepIfSame) this.store.set({ selectedFiles: [file0] });
+    if (this.unityShown(sel.path)) void this.loadUnity(same);
+    else if (this.state.unity) this.store.set({ unity: null, unityChoices: {} });
     const repoId = this.state.repoId;
     const file: FileRef = { path: sel.path, area: sel.area, kind: sel.kind };
     try {
@@ -775,6 +780,8 @@ export class App {
       | "/repo/remote/add"
       | "/repo/remote/remove"
       | "/repo/submodule/update"
+      | "/repo/unity/resolve"
+      | "/repo/unity/yamlmerge"
       | "/repo/auth/test",
     body: Record<string, unknown>,
   ): Promise<boolean> {
@@ -1011,6 +1018,7 @@ export class App {
     if (s.detailFile === path && s.detailDiff && this.detailDiffKey === key) return;
     // the old diff stays (dimmed) until the new one is there
     this.store.set({ detailFile: path });
+    if (this.unityShown(path)) void this.loadDetailUnity();
     try {
       const diff = await this.api.call("/repo/commit-diff", { repoId, sha, path });
       if (this.state.selectedSha !== sha || this.state.detailFile !== path) return;
@@ -1025,6 +1033,89 @@ export class App {
 
   /** `sha:path` the shown commit diff belongs to; differs from the selection while the next one is loading. */
   detailDiffKey: string | null = null;
+
+  // ───────────── Unity scenes / prefabs: objects instead of YAML ─────────────
+
+  /** A file shown as objects: the Preview checkbox is on and it is a Unity scene/prefab/asset. */
+  unityShown(path: string | null | undefined): boolean {
+    return this.state.unityPreview && !!path && isUnityYamlPath(path);
+  }
+
+  setUnityPreview(on: boolean): void {
+    this.store.set({ unityPreview: on });
+    if (!on) return;
+    if (this.state.unity?.path !== this.state.selectedFile?.path) void this.loadUnity();
+    if (this.state.detailUnity?.path !== this.state.detailFile) void this.loadDetailUnity();
+  }
+
+  private unitySeq = 0;
+
+  /** Preview of the file selected in Changes. `refresh`: the same file again, picked resolutions are kept. */
+  async loadUnity(refresh = false): Promise<void> {
+    const s = this.state;
+    const sel = s.selectedFile;
+    if (!this.api || !s.repoId || !sel || !this.unityShown(sel.path)) return;
+    const seq = ++this.unitySeq;
+    const repoId = s.repoId;
+    this.store.set(refresh ? { unityLoading: true } : { unity: null, unityLoading: true, unityChoices: {} });
+    let unity: UnityPreview;
+    try {
+      unity = await this.api.call("/repo/unity/preview", { repoId, path: sel.path, area: sel.area, kind: sel.kind });
+    } catch (e) {
+      unity = { path: sel.path, mode: sel.area === "conflict" ? "merge" : "diff", objects: [], conflicts: [], total: 0, error: (e as Error).message };
+    }
+    const cur = this.state.selectedFile;
+    if (seq !== this.unitySeq || this.state.repoId !== repoId || cur?.path !== sel.path || cur.area !== sel.area) return;
+    // a refresh that found the same thing leaves the pane (and its scroll position) alone
+    if (refresh && JSON.stringify(unity) === JSON.stringify(this.state.unity)) {
+      this.store.set({ unityLoading: false });
+      return;
+    }
+    const ids = new Set(unity.conflicts.map((c) => c.id));
+    const unityChoices = Object.fromEntries(Object.entries(this.state.unityChoices).filter(([id]) => ids.has(id)));
+    this.store.set({ unity, unityLoading: false, unityChoices });
+  }
+
+  /** Preview of the selected file of the selected commit. */
+  async loadDetailUnity(): Promise<void> {
+    const s = this.state;
+    const sha = s.selectedSha;
+    const path = s.detailFile;
+    if (!this.api || !s.repoId || !sha || !path || !this.unityShown(path)) return;
+    let unity: UnityPreview;
+    try {
+      unity = await this.api.call("/repo/unity/preview", { repoId: s.repoId, path, sha });
+    } catch (e) {
+      unity = { path, mode: "diff", objects: [], conflicts: [], total: 0, error: (e as Error).message };
+    }
+    if (this.state.selectedSha === sha && this.state.detailFile === path) this.store.set({ detailUnity: { ...unity, path } });
+  }
+
+  chooseUnity(id: string, choice: UnityChoice): void {
+    this.store.set({ unityChoices: { ...this.state.unityChoices, [id]: choice } });
+  }
+
+  /** Every conflict of the preview resolved like one side (an object conflict: kept or deleted as that side has it). */
+  chooseAllUnity(side: "ours" | "theirs"): void {
+    const u = this.state.unity;
+    if (!u) return;
+    const choices: Record<string, UnityChoice> = {};
+    for (const c of u.conflicts) choices[c.id] = c.kind !== "object" ? side : (side === "ours" ? c.ours : c.theirs)?.[0]?.endsWith("deleted") ? "delete" : "keep";
+    this.store.set({ unityChoices: choices });
+  }
+
+  /** Writes the merged scene/prefab with the picked resolutions and marks it resolved. */
+  applyUnity(): void {
+    const u = this.state.unity;
+    if (!u || u.mode !== "merge" || this.isBusy()) return;
+    void this.mutate("/repo/unity/resolve", { path: u.path, choices: this.state.unityChoices });
+  }
+
+  /** UnityYAMLMerge on conflicted scenes/prefabs (index stages); what it merges is written and staged. */
+  yamlMerge(paths: string[]): void {
+    if (!paths.length || this.isBusy()) return;
+    void this.mutate("/repo/unity/yamlmerge", { paths });
+  }
 
   // ───────────── groups & repositories ─────────────
 
@@ -1237,6 +1328,8 @@ export class App {
         tab: "general",
         gitPath: view.gitPath ?? "",
         editorCommand: view.editorCommand ?? "",
+        unityYamlMerge: view.unityYamlMerge ?? "",
+        unityMerge: view.unityMerge !== false,
         theme: view.theme ?? "system",
         taskPresets: { ...(view.taskPresets ?? {}) },
         accounts: null,
@@ -1259,10 +1352,13 @@ export class App {
     if (!this.api || d?.kind !== "global-settings") return;
     this.updateDialog({ saving: true });
     try {
-      const view = await this.api.call("/settings/global/save", { settings: { gitPath: d.gitPath, editorCommand: d.editorCommand, theme: d.theme, taskPresets: d.taskPresets } });
+      const view = await this.api.call("/settings/global/save", {
+        settings: { gitPath: d.gitPath, editorCommand: d.editorCommand, theme: d.theme, taskPresets: d.taskPresets, unityYamlMerge: d.unityYamlMerge, unityMerge: d.unityMerge },
+      });
       applyTheme(view.theme);
       this.store.set({ dialog: null });
       if (d.gitPath.trim() && view.gitVersion === null) this.toast(`git was not found at ${d.gitPath}`, "error");
+      else if (d.unityYamlMerge.trim() && view.unityYamlMergeFound === null) this.toast(`UnityYAMLMerge was not found at ${d.unityYamlMerge}`, "error");
       else this.toast("Settings saved", "info");
     } catch (e) {
       this.updateDialog({ saving: false, error: (e as Error).message });

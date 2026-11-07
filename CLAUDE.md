@@ -44,7 +44,7 @@ npm run release:build -- --version 0.1.99 [--base-url http://127.0.0.1:port/v0.1
 ```
 app/       оболочка Neutralino: конфиг, bin/ и client/ (скачиваются), resources/ (сборка фронтенда), extensions/backend/ (бандл бэкенда + run.sh)
 frontend/  Vite + TS без фреймворка: dom.ts, store.ts, app.ts, views/*, собирается в app/resources
-backend/   Node + TS сервис: server.ts (HTTP/WS), repo.ts (git-операции), jobs.ts (очередь), updater.ts (самообновление), watcher.ts, parse/*, scripts/smoke.mjs
+backend/   Node + TS сервис: server.ts (HTTP/WS), repo.ts (git-операции), jobs.ts (очередь), updater.ts (самообновление), unity.ts (UnityYAMLMerge), watcher.ts, parse/* (в т. ч. unityYaml/unityMerge — сцены и префабы), scripts/smoke.mjs
 shared/    типы API между фронтом и бэкендом
 tools/release  build.mjs (сборка и подпись релиза), keygen.mjs, e2e-update.mjs
 tools/win  PowerShell-скрипты для проверки окна

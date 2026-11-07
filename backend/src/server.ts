@@ -18,6 +18,7 @@ import { generateSshKey, listAccounts, listSshKeys, probeHosts, signOut, storeTo
 import { homedir } from "node:os";
 import { JobManager } from "./jobs.js";
 import { RepoService, enqueueClone } from "./repo.js";
+import { findUnityYamlMerge } from "./unity.js";
 import { Updater } from "./updater.js";
 import { RepoWatcher } from "./watcher.js";
 
@@ -262,7 +263,10 @@ export class Backend {
     const gitVersion = version && version.code === 0 ? (/git version (\S+)/.exec(version.stdout)?.[1] ?? version.stdout.trim()) : null;
     const gcm = await git(["credential-manager", "--version"], { cwd: process.cwd(), allowFailure: true }).catch(() => null);
     const gcmVersion = gcm && gcm.code === 0 ? (gcm.stdout.trim().split(/\r?\n/)[0]?.split("+")[0] ?? null) : null;
-    return { ...s, dataDir: this.opts.dataDir, gitVersion, gitResolved: getGitExecutable(), gcmVersion };
+    const last = this.config.get().lastRepoId;
+    const repoPath = last ? (this.config.repo(last)?.path ?? null) : null;
+    const unityYamlMergeFound = findUnityYamlMerge(repoPath, s.unityYamlMerge);
+    return { ...s, dataDir: this.opts.dataDir, gitVersion, gitResolved: getGitExecutable(), gcmVersion, unityYamlMergeFound };
   }
 
   private repo(id: string): RepoService {
@@ -270,7 +274,7 @@ export class Backend {
     const entry = this.config.repo(id);
     if (!entry) throw new HttpError(404, `repository ${id} is not registered`, "no-repo");
     if (!svc || svc.entry !== entry) {
-      svc = new RepoService(entry, this.opts.dataDir, this.jobs);
+      svc = new RepoService(entry, this.opts.dataDir, this.jobs, () => this.config.get().settings);
       this.repos.set(id, svc);
     }
     return svc;
@@ -407,6 +411,9 @@ export class Backend {
         return { job: this.repo(repoId).mergeScenario(this.opts.dataDir, mode, stash) };
       },
       "/repo/conflict/resolve": ({ repoId, paths, take }) => ({ job: this.repo(repoId).resolveConflict(requirePaths(paths), take) }),
+      "/repo/unity/preview": ({ repoId, path, area, kind, sha }) => this.repo(repoId).unityPreview(requirePaths([path])[0]!, area, kind, sha?.trim() || undefined),
+      "/repo/unity/resolve": ({ repoId, path, choices }) => ({ job: this.repo(repoId).unityResolve(requirePaths([path])[0]!, choices ?? {}) }),
+      "/repo/unity/yamlmerge": ({ repoId, paths }) => ({ job: this.repo(repoId).unityYamlMerge(requirePaths(paths)) }),
       "/repo/operation/abort": ({ repoId }) => ({ job: this.repo(repoId).abortOperation() }),
       "/repo/operation/continue": ({ repoId }) => ({ job: this.repo(repoId).continueOperation() }),
       "/repo/cherry-pick": ({ repoId, shas }) => ({ job: this.repo(repoId).cherryPick(requirePaths(shas)) }),
@@ -496,6 +503,9 @@ export class Backend {
             ...(settings.theme && settings.theme !== "system" ? { theme: settings.theme } : {}),
             ...((settings.mergeStash ?? c.settings.mergeStash) ? { mergeStash: true } : {}),
             ...(Object.keys(settings.taskPresets ?? c.settings.taskPresets ?? {}).length ? { taskPresets: settings.taskPresets ?? c.settings.taskPresets } : {}),
+            // not sent = unchanged, "" = back to automatic
+            ...((settings.unityYamlMerge ?? c.settings.unityYamlMerge)?.trim() ? { unityYamlMerge: (settings.unityYamlMerge ?? c.settings.unityYamlMerge)!.trim() } : {}),
+            ...((settings.unityMerge ?? c.settings.unityMerge) === false ? { unityMerge: false } : {}),
             // the layout is not part of the settings dialog: it only changes through /settings/ui/save
             ...(c.settings.ui ? { ui: c.settings.ui } : {}),
           };

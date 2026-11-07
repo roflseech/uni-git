@@ -18,6 +18,8 @@ import type {
   JobInfo,
   RepoRefs,
   RepoStatus,
+  UnityChoice,
+  UnityPreview,
   UpdateState,
 } from "@uni-git/shared";
 
@@ -72,6 +74,8 @@ export type Dialog =
       keys: SshKeyInfo[];
       gitPath: string;
       editorCommand: string;
+      unityYamlMerge: string;
+      unityMerge: boolean;
       theme: Theme;
       taskPresets: Record<string, TaskTemplate>;
       saving: boolean;
@@ -145,6 +149,15 @@ export interface State {
   diff: FileDiff | null;
   diffLoading: boolean;
   diffMode: DiffMode;
+  /** Unity scenes/prefabs show objects and properties instead of YAML (the "Preview" checkbox over the diff) */
+  unityPreview: boolean;
+  /** preview of the selected file in Changes; null until loaded */
+  unity: UnityPreview | null;
+  unityLoading: boolean;
+  /** resolutions picked in the preview of a conflicted file, by conflict id */
+  unityChoices: Record<string, UnityChoice>;
+  /** preview of the selected file of a commit (Commits view) */
+  detailUnity: UnityPreview | null;
 
   commits: CommitInfo[];
   commitsHasMore: boolean;
@@ -205,6 +218,11 @@ export function initialState(): State {
     diff: null,
     diffLoading: false,
     diffMode: (localStorage.getItem("uni-git.diffMode") as DiffMode | null) ?? "side",
+    unityPreview: true,
+    unity: null,
+    unityLoading: false,
+    unityChoices: {},
+    detailUnity: null,
     commits: [],
     commitsHasMore: false,
     commitsLoading: false,

@@ -1,7 +1,7 @@
 import type { AccountInfo, Group, RepoAuthView, RepoEntry, SshKeyInfo, TaskTemplate } from "@uni-git/shared";
 import { BUILT_IN_PRESETS, buildBranchName, commitPrefix, mergePlan, planCommands, taskLink } from "@uni-git/shared";
 import type { App } from "../app.js";
-import { cls, h } from "../dom.js";
+import { cls, h, type Child } from "../dom.js";
 import { repoNameFromUrl } from "../format.js";
 import { updateStatusText } from "./updatebar.js";
 
@@ -46,8 +46,8 @@ function reposMenu(app: App): HTMLElement {
     menu.append(
       h(
         "div",
-        { class: "group", oncontextmenu: (e: MouseEvent) => groupContext(app, g, e) },
-        h("span", null, g.name),
+        { class: "group repo-group", oncontextmenu: (e: MouseEvent) => groupContext(app, g, e) },
+        h("span", { class: "gname" }, g.name),
         h("span", { class: "meta" }, g.kind === "folder" ? `${g.root} · folder group` : "manual group"),
       ),
     );
@@ -176,17 +176,22 @@ function mergeMenu(app: App): HTMLElement {
     "force-main": { title: `Update ${main} from ${remote}, then merge into ${cur}`, lines: planCommands(mergePlan("force-main", { main, current: cur, remote, stash })) },
     "into-main": { title: `Merge ${cur} into ${main} and push`, lines: planCommands(mergePlan("into-main", { main, current: cur, remote, stash })) },
   };
-  const item = (id: string, label: string, onclick: () => void, disabled = false) =>
+  // unavailable items stay hoverable (the preview explains them) but are dimmed and say why instead of "…"
+  const item = (id: string, label: Child[], onclick: () => void, disabledWhy: string | null = null) =>
     h(
       "div",
       {
-        class: cls("item", disabled && "muted", s.menuHover === id && "hover"),
+        class: cls("item", disabledWhy !== null && "disabled", s.menuHover === id && "hover"),
+        title: disabledWhy ?? undefined,
         onmouseenter: () => app.store.set({ menuHover: id }),
-        onclick: () => !disabled && onclick(),
+        onclick: () => disabledWhy === null && onclick(),
       },
-      h("span", { class: "lbl" }, label),
-      h("span", { class: "meta" }, "…"),
+      h("span", { class: "lbl" }, ...label),
+      h("span", { class: "meta" }, disabledWhy ?? "…"),
     );
+  /** a branch name inside a label, highlighted */
+  const bn = (name: string) => h("span", { class: "bn" }, name);
+  const onMainWhy = onMain ? `you are on ${main}` : null;
   const hovered = s.menuHover ? previews[s.menuHover] : undefined;
   // the preview sits to the right of the menu, or to the left when the window is too narrow for that
   const pvLeft = left + 424 + 440 <= window.innerWidth ? left + 424 : Math.max(10, left - 450);
@@ -200,15 +205,16 @@ function mergeMenu(app: App): HTMLElement {
     h(
       "div",
       { class: "menu wide", style: `left:${left}px;top:48px`, onmouseleave: () => app.store.set({ menuHover: null }) },
-      h("div", { class: "group" }, h("span", null, "Branch"), h("span", { class: "meta" }, `main = ${main} · hover an item to see the commands`)),
-      item("create", "Create branch…", () => app.openNewBranch()),
+      h("div", { class: "group" }, h("span", null, "Branch"), h("span", { class: "meta" }, "main branch ", bn(main), " · hover an item to see the commands")),
+      item("create", ["Create branch…"], () => app.openNewBranch()),
       h("div", { class: "sep" }),
-      item("check-merged", `Is ${cur} merged into ${main}?`, () => app.openCheckMerged()),
-      item("check-commit", "Is a commit in a branch?", () => app.openCheckCommit()),
+      // on main the check is still useful for other branches (the dialog picks them)
+      item("check-merged", onMain ? ["Is a branch merged into ", bn(main), "?"] : ["Is ", bn(cur), " merged into ", bn(main), "?"], () => app.openCheckMerged()),
+      item("check-commit", ["Is a commit in a branch?"], () => app.openCheckCommit()),
       h("div", { class: "sep" }),
-      item("main", `Merge ${main} into ${cur}`, () => app.mergeScenario("main"), onMain),
-      item("force-main", `Update ${main} from ${remote} and merge into ${cur}`, () => app.mergeScenario("force-main")),
-      item("into-main", `Merge ${cur} into ${main} and push`, () => app.mergeScenario("into-main"), onMain),
+      item("main", ["Merge ", bn(main), " into ", bn(cur)], () => app.mergeScenario("main"), onMainWhy),
+      item("force-main", ["Update ", bn(main), ` from ${remote} and merge into `, bn(cur)], () => app.mergeScenario("force-main")),
+      item("into-main", ["Merge ", bn(cur), " into ", bn(main), " and push"], () => app.mergeScenario("into-main"), onMainWhy),
       h("div", { class: "sep" }),
       h(
         "div",
@@ -689,6 +695,21 @@ function dialog(app: App): HTMLElement {
       h("label", null, "Editor command"),
       h("input", { class: "field mono", value: d.editorCommand, placeholder: "code {path}", oninput: (e: Event) => app.updateDialog({ editorCommand: (e.target as HTMLInputElement).value }) }),
       h("div", { class: "hint" }, "Used by Open in Code for a repository and for a group folder. {path} is replaced by the folder. On macOS without the CLI: open -a \"Visual Studio Code\" is tried."),
+      h("label", null, "UnityYAMLMerge"),
+      h(
+        "div",
+        { class: "withsrc" },
+        h("input", { class: "field mono", value: d.unityYamlMerge, placeholder: "automatic: the project's editor in Unity Hub", oninput: (e: Event) => app.updateDialog({ unityYamlMerge: (e.target as HTMLInputElement).value }) }),
+        h("span", { class: "src" }, v.unityYamlMergeFound ? "found" : "not found"),
+      ),
+      h("label", null, ""),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: d.unityMerge, onchange: (e: Event) => app.updateDialog({ unityMerge: (e.target as HTMLInputElement).checked }) }), "Merge scenes and prefabs with UnityYAMLMerge"),
+      h(
+        "div",
+        { class: "hint" },
+        v.unityYamlMergeFound ? `Currently used: ${v.unityYamlMergeFound}. ` : "No Unity editor found in Unity Hub. ",
+        "Merges, pulls, cherry-picks and stash pops of this app pass it to git as the merge driver of .unity, .prefab, .asset and other Unity files; nothing is written to the repository. What it cannot merge is listed in Changes → Preview.",
+      ),
       h("label", null, "Theme"),
       h(
         "select",

@@ -42,8 +42,10 @@ To uninstall, delete the folder above (this removes your uni-git settings too) a
 
 ## Unity
 
-- Built for Unity projects: the file watcher ignores `Library/`, `Temp/`, `Logs/` and `obj/`, so big projects stay responsive, and C#, shaders and Unity YAML (`.prefab`, `.unity`, `.asset`) are highlighted in diffs.
-- Coming next: one-click UnityYAMLMerge setup, prefab and scene changes shown as a tree of objects and properties, and conflicts explained per property ("Player → Transform → localPosition.x: base 0, ours 1.5, theirs 2.0").
+- Scenes, prefabs and other Unity assets merge with **UnityYAMLMerge**. uni-git finds the editor of your project (`ProjectSettings/ProjectVersion.txt`) in Unity Hub and gives it to git as the merge driver for its merges, pulls, cherry-picks and stash pops. Nothing is written into your repository; the path can be set in Global Settings.
+- **Preview** for `.prefab`, `.unity`, `.asset` and other Unity files: instead of YAML, the diff lists the changed objects under their GameObject path with "old → new" values. Untick it to see the raw YAML.
+- What UnityYAMLMerge cannot merge shows up as conflicts per property (`wrench → GameObject → m_Name`: base, ours, theirs) with ours / theirs, and for lists: combine, unique values from both, or by position. Apply writes the merged file and marks it resolved.
+- Built for big projects: the file watcher ignores `Library/`, `Temp/`, `Logs/` and `obj/`, and C#, shaders and Unity YAML are highlighted in diffs.
 
 ---
 

@@ -3,8 +3,10 @@
  * Kept free of runtime dependencies so both sides can import it.
  */
 import type { TaskPreset, TaskTemplate } from "./tasks.js";
+import type { UnityChoice, UnityPreview } from "./unity.js";
 export * from "./tasks.js";
 export * from "./mergePlan.js";
+export * from "./unity.js";
 
 export const APP_NAME = "uni-git";
 export const API_VERSION = 1;
@@ -105,6 +107,10 @@ export interface GlobalSettings {
   mergeStash?: boolean;
   /** User-saved task template presets by name (built-in Jira/ClickUp are not stored). */
   taskPresets?: Record<string, TaskTemplate>;
+  /** UnityYAMLMerge executable; absent = the editor of the project's ProjectVersion.txt in Unity Hub, else the newest one */
+  unityYamlMerge?: string;
+  /** false = merge scenes/prefabs as plain text (UnityYAMLMerge is not passed to git as the merge driver) */
+  unityMerge?: boolean;
 }
 
 /** data/repos/<id>.json — per-repository settings that do not belong in .git/config. */
@@ -143,6 +149,8 @@ export interface GlobalSettingsView extends GlobalSettings {
   gitResolved: string;
   /** Git Credential Manager version, null when not installed */
   gcmVersion: string | null;
+  /** UnityYAMLMerge found for the last opened repository (or anywhere), null when there is none */
+  unityYamlMergeFound: string | null;
 }
 
 export interface AppConfig {
@@ -421,6 +429,15 @@ export interface Api {
   "/repo/auth/save": { req: { repoId: string; username: string; sshKey: string }; res: { ok: boolean } };
   "/repo/auth/test": { req: { repoId: string }; res: { job: JobInfo } };
   "/repo/conflict/resolve": { req: { repoId: string; paths: string[]; take: "ours" | "theirs" | "mark" }; res: { job: JobInfo } };
+  /**
+   * Objects and properties of a Unity scene/prefab instead of text. A conflicted file (area "conflict") is merged from
+   * its index stages and lists the conflicts; otherwise the two versions the normal diff compares, or a commit's file (sha).
+   */
+  "/repo/unity/preview": { req: { repoId: string; path: string; area?: ChangeArea; kind?: ChangeKind; sha?: string }; res: UnityPreview };
+  /** Writes the merge of a conflicted Unity file with a choice for every conflict of its preview and stages it. */
+  "/repo/unity/resolve": { req: { repoId: string; path: string; choices: Record<string, UnityChoice> }; res: { job: JobInfo } };
+  /** Runs UnityYAMLMerge on conflicted files (index stages); the ones it merges cleanly are written and staged. */
+  "/repo/unity/yamlmerge": { req: { repoId: string; paths: string[] }; res: { job: JobInfo } };
   "/repo/operation/abort": { req: { repoId: string }; res: { job: JobInfo } };
   "/repo/operation/continue": { req: { repoId: string }; res: { job: JobInfo } };
   "/repo/cherry-pick": { req: { repoId: string; shas: string[] }; res: { job: JobInfo } };

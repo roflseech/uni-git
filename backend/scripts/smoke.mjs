@@ -331,6 +331,111 @@ try {
   const stAb = await post("/repo/status", { repoId });
   check("abort merge", j.state === "done" && stAb.operation === "none" && stAb.conflicts.length === 0 && readFileSync(join(repo, "c.txt"), "utf8").replace(/\r/g, "") === "D\n", JSON.stringify([j.error, stAb.operation, readFileSync(join(repo, "c.txt"), "utf8")]));
 
+  // ── Unity: preview of a prefab change, object-level merge of a conflict, UnityYAMLMerge as git's merge driver ──
+  const cfgU = await post("/config");
+  // plain git merge first: it has to leave a conflict to resolve in the preview
+  await post("/settings/global/save", { settings: { ...cfgU.settings, unityMerge: false } });
+  const PREFAB = [
+    "%YAML 1.1",
+    "%TAG !u! tag:unity3d.com,2011:",
+    "--- !u!1 &100",
+    "GameObject:",
+    "  m_Component:",
+    "  - component: {fileID: 400}",
+    "  m_Layer: 0",
+    "  m_Name: Root",
+    "--- !u!4 &400",
+    "Transform:",
+    "  m_GameObject: {fileID: 100}",
+    "  m_LocalPosition: {x: 0, y: 0, z: 0}",
+    "  m_Children:",
+    "  - {fileID: 401}",
+    "  m_Father: {fileID: 0}",
+    "--- !u!1 &101",
+    "GameObject:",
+    "  m_Component:",
+    "  - component: {fileID: 401}",
+    "  - component: {fileID: 11400}",
+    "  m_Layer: 0",
+    "  m_Name: Child",
+    "--- !u!4 &401",
+    "Transform:",
+    "  m_GameObject: {fileID: 101}",
+    "  m_LocalPosition: {x: 1, y: 2, z: 3}",
+    "  m_Children: []",
+    "  m_Father: {fileID: 400}",
+    "--- !u!114 &11400",
+    "MonoBehaviour:",
+    "  m_GameObject: {fileID: 101}",
+    "  m_Enabled: 1",
+    "  values:",
+    "  - 1",
+    "  - 2",
+    "  - 3",
+    "",
+  ].join("\n");
+  writeFileSync(join(repo, "u.prefab"), PREFAB);
+  sh("git add u.prefab && git commit -q -m prefab");
+  sh("git switch -q -c u-theirs");
+  writeFileSync(join(repo, "u.prefab"), PREFAB.replace("m_Name: Child", "m_Name: Kid").replace("  - 3\n", "  - 3\n  - 5\n"));
+  sh("git commit -q -am u-theirs");
+  sh("git switch -q master");
+  writeFileSync(join(repo, "u.prefab"), PREFAB.replace("{x: 1, y: 2, z: 3}", "{x: 9, y: 2, z: 3}").replace("  - 3\n", "  - 3\n  - 4\n"));
+  const up = await post("/repo/unity/preview", { repoId, path: "u.prefab", area: "unstaged", kind: "M" });
+  check(
+    "unity preview of a change",
+    up.mode === "diff" && !up.error && up.objects.some((o) => o.owner === "Root/Child" && o.type === "Transform" && o.changes.some((c) => c.path === "m_LocalPosition.x" && c.old === "1" && c.new === "9")),
+    JSON.stringify(up).slice(0, 500),
+  );
+  sh("git commit -q -am u-ours");
+  j = (await post("/repo/merge", { repoId, branch: "u-theirs" })).job;
+  j = await waitJob(j.id);
+  const stU = await post("/repo/status", { repoId });
+  check("unity text conflict", j.state === "failed" && stU.conflicts.some((f) => f.path === "u.prefab"), JSON.stringify([j.state, stU.conflicts]));
+  const mp = await post("/repo/unity/preview", { repoId, path: "u.prefab", area: "conflict", kind: "U" });
+  const arr = mp.conflicts.find((c) => c.kind === "array");
+  check(
+    "unity merge preview: list conflict, the rest merged",
+    mp.mode === "merge" && mp.conflicts.length === 1 && arr?.path === "values" && mp.objects.some((o) => o.changes.some((c) => c.path === "m_Name" && c.old === "Child" && c.new === "Kid")),
+    JSON.stringify(mp).slice(0, 700),
+  );
+  const rawU = await post("/repo/diff", { repoId, file: { path: "u.prefab", area: "conflict", kind: "U" } });
+  check("unity conflict raw view is ours → theirs", rawU.note?.startsWith("Raw YAML") && rawU.hunks.length > 0, JSON.stringify(rawU).slice(0, 300));
+  j = (await post("/repo/unity/resolve", { repoId, path: "u.prefab", choices: {} })).job;
+  j = await waitJob(j.id);
+  check("unity resolve needs every choice", j.state === "failed" && /choice/.test(j.error ?? ""), j.error);
+  j = (await post("/repo/unity/resolve", { repoId, path: "u.prefab", choices: { [arr?.id ?? "?"]: "unique" } })).job;
+  j = await waitJob(j.id);
+  const stU2 = await post("/repo/status", { repoId });
+  const mergedU = readFileSync(join(repo, "u.prefab"), "utf8").replace(/\r/g, "");
+  check(
+    "unity resolve writes and stages",
+    j.state === "done" && stU2.conflicts.length === 0 && mergedU.includes("{x: 9, y: 2, z: 3}") && mergedU.includes("m_Name: Kid") && mergedU.includes("  - 3\n  - 4\n  - 5\n"),
+    JSON.stringify([j.error, stU2.conflicts, mergedU.slice(-120)]),
+  );
+  j = (await post("/repo/operation/continue", { repoId })).job;
+  j = await waitJob(j.id);
+  check("unity merge committed", j.state === "done" && (await post("/repo/status", { repoId })).operation === "none", j.error);
+  await post("/settings/global/save", { settings: { ...cfgU.settings, unityMerge: true } });
+  const gsU = await post("/settings/global");
+  if (gsU.unityYamlMergeFound) {
+    // changes on adjacent lines: git's text merge conflicts, UnityYAMLMerge as the merge driver merges them
+    const cur = readFileSync(join(repo, "u.prefab"), "utf8");
+    sh("git switch -q -c u-theirs2");
+    writeFileSync(join(repo, "u.prefab"), cur.replace("m_Name: Root", "m_Name: Root2"));
+    sh("git commit -q -am u-theirs2");
+    sh("git switch -q master");
+    writeFileSync(join(repo, "u.prefab"), cur.replace(/m_Layer: 0(\r?\n  m_Name: Root)/, "m_Layer: 4$1"));
+    sh("git commit -q -am u-ours2");
+    j = (await post("/repo/merge", { repoId, branch: "u-theirs2" })).job;
+    j = await waitJob(j.id);
+    const ymLog = (await post("/jobs/log", { jobId: j.id })).log;
+    const ym = readFileSync(join(repo, "u.prefab"), "utf8").replace(/\r/g, "");
+    check("UnityYAMLMerge merges as git's merge driver", j.state === "done" && ym.includes("m_Layer: 4\n  m_Name: Root2\n") && /UnityYAMLMerge merged u\.prefab/.test(ymLog), JSON.stringify([j.error, ymLog.slice(-400)]));
+  } else {
+    console.log("SKIP UnityYAMLMerge merge driver: no Unity editor installed");
+  }
+
   // cherry-pick a commit from another branch
   sh("git switch -q -c pick-src");
   writeFileSync(join(repo, "pick.txt"), "picked\n");
