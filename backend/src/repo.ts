@@ -43,6 +43,41 @@ import { YAML_MERGE_ARGS, defaultAttributesFile, findUnityYamlMerge, runTool, un
 
 const MAX_NEW_FILE_BYTES = 4 * 1024 * 1024;
 const LOG_PAGE_MAX = 500;
+/**
+ * Path lists longer than this (characters) do not go on git's command line: Windows limits a whole command line to
+ * 32 767 characters (spawn fails with ENAMETOOLONG), and "Stage all" in a big project easily has more.
+ */
+const PATHS_ON_COMMAND_LINE = 8000;
+
+const pathsLength = (paths: string[]): number => paths.reduce((n, p) => n + p.length + 3, 0);
+
+/**
+ * Pathspec for commands that read `--pathspec-from-file` (add, reset, rm, restore, checkout): short lists on the
+ * command line (readable in the job log), long ones NUL-separated through stdin. Measured: 6000 pathspecs cost
+ * about as much as one `git add -A`, so long lists need no folding into folders.
+ */
+function pathspec(paths: string[]): { args: string[]; opts: { input?: string } } {
+  if (pathsLength(paths) <= PATHS_ON_COMMAND_LINE) return { args: ["--", ...paths], opts: {} };
+  return { args: ["--pathspec-from-file=-", "--pathspec-file-nul"], opts: { input: paths.join("\0") } };
+}
+
+/** For commands without `--pathspec-from-file` (clean): batches that each fit the command line. */
+function batches(paths: string[]): string[][] {
+  const out: string[][] = [];
+  let cur: string[] = [];
+  let len = 0;
+  for (const p of paths) {
+    if (cur.length && len + p.length + 3 > PATHS_ON_COMMAND_LINE) {
+      out.push(cur);
+      cur = [];
+      len = 0;
+    }
+    cur.push(p);
+    len += p.length + 3;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
 /** a Unity scene/prefab version larger than this is not parsed for the preview */
 const MAX_UNITY_BYTES = 48 * 1024 * 1024;
 
@@ -579,7 +614,9 @@ export class RepoService {
       this.target,
       `stage ${describePaths(paths)}`,
       async (ctx) => {
-        await ctx.git(["add", "-A", "--", ...paths]);
+        // the listed files only: "Stage all" must not mark conflicted files resolved, which a bare `git add -A` would
+        const ps = pathspec(paths);
+        await ctx.git(["add", "-A", ...ps.args], ps.opts);
       },
       true,
     );
@@ -590,9 +627,11 @@ export class RepoService {
       this.target,
       `unstage ${describePaths(paths)}`,
       async (ctx) => {
+        // with paths: a bare `git reset` would also end a merge in progress and drop the conflict stages
+        const ps = pathspec(paths);
         const head = await ctx.git(["rev-parse", "--verify", "-q", "HEAD"], { allowFailure: true });
-        if (head.code === 0) await ctx.git(["reset", "-q", "--", ...paths]);
-        else await ctx.git(["rm", "-r", "--cached", "-q", "--", ...paths]);
+        if (head.code === 0) await ctx.git(["reset", "-q", ...ps.args], ps.opts);
+        else await ctx.git(["rm", "-r", "--cached", "-q", ...ps.args], ps.opts);
       },
       true,
     );
@@ -711,12 +750,21 @@ export class RepoService {
           await this.discardAll(ctx);
           return;
         }
-        const listed = await ctx.git(["ls-files", "-z", "--", ...paths], { allowFailure: true });
+        // which paths git tracks: ls-files of the paths, or of everything when they do not fit one command line
+        const short = pathsLength(paths) <= PATHS_ON_COMMAND_LINE;
+        const listed = await ctx.git(["ls-files", "-z", ...(short ? ["--", ...paths] : [])], { allowFailure: true });
         const tracked = new Set(listed.stdout.split("\0").filter(Boolean));
-        const trackedPaths = paths.filter((p) => tracked.has(p) || [...tracked].some((t) => t.startsWith(p.replace(/\/?$/, "/"))));
-        if (trackedPaths.length) await ctx.git(["restore", "--worktree", "--source=HEAD", "--", ...trackedPaths]);
-        const untracked = paths.filter((p) => !trackedPaths.includes(p));
-        if (untracked.length) await ctx.git(["clean", "-f", "-d", "--", ...untracked]);
+        // a folder path counts as tracked when a tracked file is inside it
+        const trackedDirs = new Set<string>();
+        for (const t of tracked) for (let i = t.indexOf("/"); i > 0; i = t.indexOf("/", i + 1)) trackedDirs.add(t.slice(0, i));
+        const trackedPaths = paths.filter((p) => tracked.has(p) || trackedDirs.has(p.replace(/\/+$/, "")));
+        if (trackedPaths.length) {
+          const ps = pathspec(trackedPaths);
+          await ctx.git(["restore", "--worktree", "--source=HEAD", ...ps.args], ps.opts);
+        }
+        const isTracked = new Set(trackedPaths);
+        // clean has no --pathspec-from-file
+        for (const batch of batches(paths.filter((p) => !isTracked.has(p)))) await ctx.git(["clean", "-f", "-d", "--", ...batch]);
       },
       true,
     );
@@ -889,12 +937,13 @@ export class RepoService {
       this.target,
       `${label}: ${describePaths(paths)}`,
       async (ctx) => {
+        const ps = pathspec(paths);
         if (take !== "mark") {
           // a side may not exist (added on one branch only): checkout fails for it, then the file is simply staged/removed
-          const r = await ctx.git(["checkout", `--${take}`, "--", ...paths], { allowFailure: true });
+          const r = await ctx.git(["checkout", `--${take}`, ...ps.args], { ...ps.opts, allowFailure: true });
           if (r.code !== 0) ctx.log("some files exist on one side only, staging what is there");
         }
-        await ctx.git(["add", "-A", "--", ...paths]);
+        await ctx.git(["add", "-A", ...ps.args], ps.opts);
       },
       true,
     );

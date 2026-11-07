@@ -257,6 +257,19 @@ try {
   const stH2 = await post("/repo/status", { repoId });
   check("unstage hunk", j.state === "done" && !stH2.staged.some((f) => f.path === "h.txt"), j.error);
 
+  // "Stage all" in a big project: 600 paths of ~75 characters do not fit a Windows command line (32 767), they go through stdin
+  mkdirSync(join(repo, "many"));
+  const many = Array.from({ length: 600 }, (_, i) => `many/a rather long file name to overflow the command line ${String(i).padStart(4, "0")}.txt`);
+  for (const p of many) writeFileSync(join(repo, p), `${p}\n`);
+  j = await waitJob((await post("/repo/stage", { repoId, paths: many })).job.id);
+  let stMany = await post("/repo/status", { repoId });
+  check("stage 600 files (longer than a command line)", j.state === "done" && many.every((p) => stMany.staged.some((f) => f.path === p)), j.error);
+  j = await waitJob((await post("/repo/unstage", { repoId, paths: many })).job.id);
+  stMany = await post("/repo/status", { repoId });
+  check("unstage 600 files", j.state === "done" && !stMany.staged.some((f) => f.path.startsWith("many/")) && stMany.unstaged.filter((f) => f.path.startsWith("many/")).length === 600, j.error);
+  j = await waitJob((await post("/repo/discard", { repoId, paths: many })).job.id);
+  check("discard 600 untracked files", j.state === "done" && !many.some((p) => existsSync(join(repo, p))), j.error);
+
   // ── stage 2: merge scenarios against a local bare "origin", conflicts, cherry-pick, stash, tags, remotes ──
   const bare = join(root, "origin.git");
   sh(`git init -q --bare "${bare}"`, root);
