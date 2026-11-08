@@ -3,7 +3,7 @@
 // (scan → add group → status → diff → stage/unstage → commit → log → details → clone → watcher → shutdown).
 //   npm run build -w backend && npm run smoke -w backend
 import { spawn, execSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, rmSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -216,6 +216,16 @@ try {
   j = (await post("/repo/branch/delete", { repoId, name: "topic/renamed", remote: false, force: false })).job;
   j = await waitJob(j.id);
   check("branch delete", j.state === "done" && !(await post("/repo/refs", { repoId })).branches.some((b) => b.name === "topic/renamed"), j.error);
+  // names that look like options are refused: a new branch "-D" from master ran `git branch -D master`
+  const refused = async (route, body) => post(route, body).then(() => null, (e) => String(e.message));
+  const badCreate = await refused("/repo/branch/create", { repoId, name: "-D", from: "master", checkout: false });
+  const badRename = await refused("/repo/branch/rename", { repoId, from: "master", to: "-f" });
+  const badTag = await refused("/repo/tag/create", { repoId, name: "-d", sha: "", message: "", push: false });
+  check(
+    "option-like names refused",
+    [badCreate, badRename, badTag].every((m) => / 400 /.test(m ?? "")) && (await post("/repo/refs", { repoId })).branches.some((b) => b.name === "master"),
+    JSON.stringify([badCreate, badRename, badTag]),
+  );
 
   writeFileSync(join(repo, "a.txt"), "discard me\n");
   writeFileSync(join(repo, "junk.tmp"), "x");
@@ -269,6 +279,72 @@ try {
   check("unstage 600 files", j.state === "done" && !stMany.staged.some((f) => f.path.startsWith("many/")) && stMany.unstaged.filter((f) => f.path.startsWith("many/")).length === 600, j.error);
   j = await waitJob((await post("/repo/discard", { repoId, paths: many })).job.id);
   check("discard 600 untracked files", j.state === "done" && !many.some((p) => existsSync(join(repo, p))), j.error);
+
+  // the same 600 as tracked files: commit them, change them all, discard the long list (checkout-index), remove them
+  for (const p of many) writeFileSync(join(repo, p), `${p}\n`);
+  j = await waitJob((await post("/repo/stage", { repoId, paths: many })).job.id);
+  j = await waitJob((await post("/repo/commit", { repoId, message: "600 files", amend: false, push: false })).job.id);
+  check("commit 600 files", j.state === "done" && sh("git ls-files many").split("\n").filter(Boolean).length === 600, j.error);
+  for (const p of many) writeFileSync(join(repo, p), "changed\n");
+  rmSync(join(repo, many[0]));
+  j = await waitJob((await post("/repo/discard", { repoId, paths: many })).job.id);
+  const restoredAll = many.every((p) => existsSync(join(repo, p)) && readFileSync(join(repo, p), "utf8").replace(/\r/g, "") === `${p}\n`);
+  check("discard 600 tracked files", j.state === "done" && restoredAll && !(await post("/repo/status", { repoId })).unstaged.some((f) => f.path.startsWith("many/")), j.error);
+  sh("git rm -q -r many && git commit -q -m drop-many");
+
+  // a path that vanished between the status and the job (an editor's temporary file) must not fail "Stage all"
+  writeFileSync(join(repo, "k1.txt"), "1\n");
+  writeFileSync(join(repo, "k2.txt"), "2\n");
+  j = await waitJob((await post("/repo/stage", { repoId, paths: ["k1.txt", "gone-meanwhile.tmp", "k2.txt"] })).job.id);
+  let stK = await post("/repo/status", { repoId });
+  check("stage skips a vanished path", j.state === "done" && ["k1.txt", "k2.txt"].every((p) => stK.staged.some((f) => f.path === p)), JSON.stringify([j.error, stK.staged]));
+  // paths are not trimmed: " lead.txt" is another file than "lead.txt"
+  writeFileSync(join(repo, " lead.txt"), "lead\n");
+  writeFileSync(join(repo, "lead.txt"), "other\n");
+  j = await waitJob((await post("/repo/stage", { repoId, paths: [" lead.txt"] })).job.id);
+  stK = await post("/repo/status", { repoId });
+  check("path with a leading space", j.state === "done" && stK.staged.some((f) => f.path === " lead.txt") && !stK.staged.some((f) => f.path === "lead.txt"), JSON.stringify([j.error, stK.staged.map((f) => f.path)]));
+  j = await waitJob((await post("/repo/unstage", { repoId, paths: ["k1.txt", "k2.txt", " lead.txt"] })).job.id);
+  stK = await post("/repo/status", { repoId });
+  const kept = existsSync(join(repo, "lead.txt"));
+  j = await waitJob((await post("/repo/discard", { repoId, paths: [" lead.txt"] })).job.id);
+  check("discard a leading-space name deletes only it", j.state === "done" && !existsSync(join(repo, " lead.txt")) && kept && existsSync(join(repo, "lead.txt")) && stK.staged.length === 0, JSON.stringify([j.error, stK.staged]));
+  j = await waitJob((await post("/repo/discard", { repoId, paths: ["k1.txt", "k2.txt", "lead.txt"] })).job.id);
+
+  // a staged rename is one status row (path, oldPath); unstaging both paths leaves nothing staged
+  writeFileSync(join(repo, "r-old.txt"), "rename me\n".repeat(20));
+  sh("git add r-old.txt && git commit -q -m r-old && git mv r-old.txt r-new.txt");
+  const ren = (await post("/repo/status", { repoId })).staged.find((f) => f.path === "r-new.txt");
+  j = await waitJob((await post("/repo/unstage", { repoId, paths: ["r-new.txt", ren?.oldPath ?? "r-old.txt"] })).job.id);
+  const stRen = await post("/repo/status", { repoId });
+  check(
+    "unstage a staged rename",
+    ren?.kind === "R" && ren.oldPath === "r-old.txt" && j.state === "done" && stRen.staged.length === 0 && stRen.unstaged.some((f) => f.path === "r-old.txt" && f.kind === "D") && stRen.unstaged.some((f) => f.path === "r-new.txt" && f.kind === "?"),
+    JSON.stringify([ren, j.error, stRen.staged, stRen.unstaged]),
+  );
+  rmSync(join(repo, "r-new.txt"));
+  sh("git checkout -- r-old.txt");
+
+  // discard of tracked files: unstaged-only changes come back from the index, a file with a staged change from HEAD
+  // (its staged change stays, as `restore --worktree --source=HEAD` leaves it), a deleted file comes back
+  writeFileSync(join(repo, "d1.txt"), "d1 base\n");
+  writeFileSync(join(repo, "d2.txt"), "d2 base\n");
+  writeFileSync(join(repo, "d3.txt"), "d3 base\n");
+  sh("git add d1.txt d2.txt d3.txt && git commit -q -m discard-base");
+  writeFileSync(join(repo, "d1.txt"), "d1 edit\n");
+  writeFileSync(join(repo, "d2.txt"), "d2 staged\n");
+  sh("git add d2.txt");
+  writeFileSync(join(repo, "d2.txt"), "d2 staged then edited\n");
+  rmSync(join(repo, "d3.txt"));
+  j = await waitJob((await post("/repo/discard", { repoId, paths: ["d1.txt", "d2.txt", "d3.txt"] })).job.id);
+  const txt = (p) => (existsSync(join(repo, p)) ? readFileSync(join(repo, p), "utf8").replace(/\r/g, "") : null);
+  const stMix = await post("/repo/status", { repoId });
+  check(
+    "discard tracked: from index and from HEAD",
+    j.state === "done" && txt("d1.txt") === "d1 base\n" && txt("d2.txt") === "d2 base\n" && txt("d3.txt") === "d3 base\n" && stMix.staged.some((f) => f.path === "d2.txt") && !stMix.unstaged.some((f) => f.path === "d1.txt" || f.path === "d3.txt"),
+    JSON.stringify([j.error, txt("d1.txt"), txt("d2.txt"), txt("d3.txt"), stMix.staged, stMix.unstaged]),
+  );
+  sh("git reset -q -- d2.txt && git checkout -- d2.txt");
 
   // ── stage 2: merge scenarios against a local bare "origin", conflicts, cherry-pick, stash, tags, remotes ──
   const bare = join(root, "origin.git");
@@ -343,6 +419,31 @@ try {
   j = await waitJob(j.id);
   const stAb = await post("/repo/status", { repoId });
   check("abort merge", j.state === "done" && stAb.operation === "none" && stAb.conflicts.length === 0 && readFileSync(join(repo, "c.txt"), "utf8").replace(/\r/g, "") === "D\n", JSON.stringify([j.error, stAb.operation, readFileSync(join(repo, "c.txt"), "utf8")]));
+
+  // "Take ours" on a text conflict together with a file we deleted and they changed: plain `checkout --ours` refused
+  // the whole list, and staging it as it was put the conflict markers of c.txt into the index
+  writeFileSync(join(repo, "md.txt"), "base\n");
+  sh("git add md.txt && git commit -q -m md-base");
+  sh("git switch -q -c conflict-d");
+  writeFileSync(join(repo, "c.txt"), "E\n");
+  writeFileSync(join(repo, "md.txt"), "their edit\n");
+  sh("git add c.txt md.txt && git commit -q -m theirs-d");
+  sh("git switch -q master");
+  writeFileSync(join(repo, "c.txt"), "F\n");
+  sh("git rm -q md.txt && git add c.txt && git commit -q -m ours-d");
+  j = await waitJob((await post("/repo/merge", { repoId, branch: "conflict-d" })).job.id);
+  const stMd = await post("/repo/status", { repoId });
+  j = await waitJob((await post("/repo/conflict/resolve", { repoId, paths: stMd.conflicts.map((f) => f.path), take: "ours" })).job.id);
+  const stMd2 = await post("/repo/status", { repoId });
+  const cNow = readFileSync(join(repo, "c.txt"), "utf8").replace(/\r/g, "");
+  const cStaged = sh("git show :c.txt").replace(/\r/g, "");
+  check(
+    "take ours with a side deleted",
+    stMd.conflicts.length === 2 && j.state === "done" && stMd2.conflicts.length === 0 && cNow === "F\n" && cStaged === "F\n" && !existsSync(join(repo, "md.txt")) && !sh("git ls-files md.txt").trim(),
+    JSON.stringify([stMd.conflicts, j.error, stMd2.conflicts, cNow, cStaged, existsSync(join(repo, "md.txt"))]),
+  );
+  j = await waitJob((await post("/repo/operation/continue", { repoId })).job.id);
+  check("merge with a side deleted committed", j.state === "done" && (await post("/repo/status", { repoId })).operation === "none", j.error);
 
   // ── Unity: preview of a prefab change, object-level merge of a conflict, UnityYAMLMerge as git's merge driver ──
   const cfgU = await post("/config");
@@ -566,6 +667,58 @@ try {
   check("credentials reached the server", seenAuth === "Basic " + Buffer.from("smoke-user:s3cret").toString("base64"), seenAuth);
   ws.removeEventListener("message", askListener);
   authServer.close();
+
+  // cancel of a fetch from a remote that never answers: git and its http helper end (on Windows killing only the
+  // launcher cmd\git.exe left the real git running until the transfer was over), the connection closes
+  const hangSockets = new Set();
+  const hangServer = createServer(() => {
+    /* never answers */
+  });
+  hangServer.on("connection", (s) => {
+    hangSockets.add(s);
+    s.on("close", () => hangSockets.delete(s));
+  });
+  await new Promise((r) => hangServer.listen(0, "127.0.0.1", r));
+  sh(`git remote set-url origin http://127.0.0.1:${hangServer.address().port}/demo.git`);
+  const hj = (await post("/repo/fetch", { repoId })).job;
+  for (let i = 0; i < 200 && hangSockets.size === 0; i++) await new Promise((r) => setTimeout(r, 25));
+  const connected = hangSockets.size > 0;
+  const cancelAt = Date.now();
+  await post("/jobs/cancel", { jobId: hj.id });
+  const hjd = await waitJob(hj.id);
+  const cancelMs = Date.now() - cancelAt;
+  for (let i = 0; i < 100 && hangSockets.size > 0; i++) await new Promise((r) => setTimeout(r, 25));
+  check("cancel ends a hanging fetch", connected && hjd.state === "cancelled" && cancelMs < 5000 && hangSockets.size === 0, JSON.stringify([connected, hjd.state, cancelMs, hangSockets.size]));
+  for (const s of hangSockets) s.destroy();
+  hangServer.close();
+
+  // cancel during a local command lets it finish (a kill leaves index.lock or a half-done state): the commit is made
+  // and the job reports done, so the UI does not invite a second commit
+  const hook = join(repo, ".git", "hooks", "pre-commit");
+  writeFileSync(hook, "#!/bin/sh\nsleep 3\n");
+  chmodSync(hook, 0o755);
+  writeFileSync(join(repo, "slow.txt"), "slow\n");
+  sh("git add slow.txt");
+  const slow = (await post("/repo/commit", { repoId, message: "slow commit", amend: false, push: false })).job;
+  await new Promise((r) => setTimeout(r, 1000));
+  // Repo Settings write .git/config directly: refused while an operation of the repository runs
+  const busySettings = await refused("/repo/settings/save", { repoId, groupId: rs.groupId, mainBranch: "master", userName: "Renamed Tester", userEmail: "a@b.c" });
+  const busyAuth = await refused("/repo/auth/save", { repoId, username: "busy-login", sshKey: "" });
+  check(
+    "repo settings refused while busy",
+    [busySettings, busyAuth].every((m) => / 409 /.test(m ?? "") && /"code":"busy"/.test(m ?? "")) && !sh("git config --local --get credential.username || echo none").includes("busy-login"),
+    JSON.stringify([busySettings, busyAuth]),
+  );
+  await post("/jobs/cancel", { jobId: slow.id });
+  const slowDone = await waitJob(slow.id);
+  check(
+    "cancel lets a local commit finish",
+    slowDone.state === "done" && sh("git log -1 --format=%s").trim() === "slow commit" && !existsSync(join(repo, ".git", "index.lock")),
+    JSON.stringify([slowDone.state, slowDone.error, sh("git log -1 --format=%s").trim()]),
+  );
+  rmSync(hook);
+  const idleSettings = await refused("/repo/settings/save", { repoId, groupId: rs.groupId, mainBranch: "master", userName: "Renamed Tester", userEmail: "a@b.c" });
+  check("repo settings saved once idle", idleSettings === null, idleSettings);
 
   const un = await fetch(`http://127.0.0.1:${session.port}/ping`, { method: "POST" });
   check("401 without token", un.status === 401);

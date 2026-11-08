@@ -3,7 +3,7 @@
  * mutations go through the job queue so the UI can show progress and lock the repository.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import type {
@@ -48,13 +48,19 @@ const LOG_PAGE_MAX = 500;
  * 32 767 characters (spawn fails with ENAMETOOLONG), and "Stage all" in a big project easily has more.
  */
 const PATHS_ON_COMMAND_LINE = 8000;
+/** Batches for `clean`, which cannot read paths from stdin: as large as the command line safely allows. */
+const CLEAN_BATCH = 24000;
 
 const pathsLength = (paths: string[]): number => paths.reduce((n, p) => n + p.length + 3, 0);
 
+/** NUL-terminated list for `--stdin -z` / `--index-info -z`. */
+const nulList = (items: string[]): string => items.map((p) => `${p}\0`).join("");
+
 /**
- * Pathspec for commands that read `--pathspec-from-file` (add, reset, rm, restore, checkout): short lists on the
- * command line (readable in the job log), long ones NUL-separated through stdin. Measured: 6000 pathspecs cost
- * about as much as one `git add -A`, so long lists need no folding into folders.
+ * Pathspec for commands that read `--pathspec-from-file` (checkout, restore, add): short lists on the command line
+ * (readable in the job log), long ones NUL-separated through stdin. Every pathspec is matched against every index
+ * entry, about 9 ns per pair: fine for folders or conflicts; for "Stage all" of 12 000 files it is 3 s on top in a
+ * 30 000-file index and about 30 s in a 300 000-file one. Exact file lists go through update-index / checkout-index.
  */
 function pathspec(paths: string[]): { args: string[]; opts: { input?: string } } {
   if (pathsLength(paths) <= PATHS_ON_COMMAND_LINE) return { args: ["--", ...paths], opts: {} };
@@ -62,12 +68,12 @@ function pathspec(paths: string[]): { args: string[]; opts: { input?: string } }
 }
 
 /** For commands without `--pathspec-from-file` (clean): batches that each fit the command line. */
-function batches(paths: string[]): string[][] {
+function batches(paths: string[], limit = CLEAN_BATCH): string[][] {
   const out: string[][] = [];
   let cur: string[] = [];
   let len = 0;
   for (const p of paths) {
-    if (cur.length && len + p.length + 3 > PATHS_ON_COMMAND_LINE) {
+    if (cur.length && len + p.length + 3 > limit) {
       out.push(cur);
       cur = [];
       len = 0;
@@ -77,6 +83,33 @@ function batches(paths: string[]): string[][] {
   }
   if (cur.length) out.push(cur);
   return out;
+}
+
+/** Does an index path fall under one of the given paths (the path itself or a file inside a folder path)? */
+function underAny(paths: string[]): (p: string) => boolean {
+  const set = new Set(paths.map((p) => p.replace(/\/+$/, "")));
+  return (p) => {
+    if (set.has(p)) return true;
+    for (let i = p.indexOf("/"); i > 0; i = p.indexOf("/", i + 1)) if (set.has(p.slice(0, i))) return true;
+    return false;
+  };
+}
+
+/** Folders among the paths (`dir/` as status lists a nested repository, or a folder on disk) and everything else. */
+async function splitFolders(root: string, paths: string[]): Promise<{ dirs: string[]; files: string[] }> {
+  const dirs: string[] = [];
+  const files: string[] = [];
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < paths.length) {
+      const p = paths[next++]!;
+      // a path that vanished counts as a file: update-index drops it from the index or skips it
+      const dir = p.endsWith("/") || (await lstat(join(root, p)).then((s) => s.isDirectory(), () => false));
+      (dir ? dirs : files).push(p);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(16, paths.length) }, worker));
+  return { dirs, files };
 }
 /** a Unity scene/prefab version larger than this is not parsed for the preview */
 const MAX_UNITY_BYTES = 48 * 1024 * 1024;
@@ -615,11 +648,31 @@ export class RepoService {
       `stage ${describePaths(paths)}`,
       async (ctx) => {
         // the listed files only: "Stage all" must not mark conflicted files resolved, which a bare `git add -A` would
-        const ps = pathspec(paths);
-        await ctx.git(["add", "-A", ...ps.args], ps.opts);
+        await this.addPaths(ctx, paths);
       },
       true,
     );
+  }
+
+  /**
+   * Stages exactly these paths, new, modified or deleted, like `git add -A -- <paths>`, with two differences that
+   * matter in a big project. A path that vanished since the status was read (an editor's temporary file) is skipped;
+   * `git add` fails the whole list with "pathspec did not match" and stages nothing. And update-index looks each path
+   * up instead of matching every index entry against every pathspec (see pathspec()). Writing the new blobs costs the
+   * same either way (3–7 ms per new file on Windows, file system and antivirus). Folders (a submodule, a nested
+   * repository, a folder an API caller names) still go through `git add`, which expands them.
+   */
+  private async addPaths(ctx: JobContext, paths: string[]): Promise<void> {
+    const { dirs, files } = await splitFolders(this.path, paths);
+    if (files.length) {
+      if (files.length > 1) ctx.log(`${files.length} paths through stdin`);
+      // --replace: a file may take the place of a folder (and back); skip-worktree entries are never removed
+      await ctx.git(["update-index", "--add", "--remove", "--replace", "--ignore-skip-worktree-entries", "-z", "--stdin"], { input: nulList(files) });
+    }
+    if (dirs.length) {
+      const ps = pathspec(dirs);
+      await ctx.git(["add", "-A", ...ps.args], ps.opts);
+    }
   }
 
   unstage(paths: string[]): JobInfo {
@@ -628,13 +681,40 @@ export class RepoService {
       `unstage ${describePaths(paths)}`,
       async (ctx) => {
         // with paths: a bare `git reset` would also end a merge in progress and drop the conflict stages
-        const ps = pathspec(paths);
-        const head = await ctx.git(["rev-parse", "--verify", "-q", "HEAD"], { allowFailure: true });
-        if (head.code === 0) await ctx.git(["reset", "-q", ...ps.args], ps.opts);
-        else await ctx.git(["rm", "-r", "--cached", "-q", ...ps.args], ps.opts);
+        await this.resetPaths(ctx, paths);
       },
       true,
     );
+  }
+
+  /**
+   * Index entries of these paths (files, or everything inside folder paths) back to HEAD, as `git reset -- <paths>`
+   * does, in time linear in the number of paths: one `diff-index --cached` lists what is staged and
+   * `update-index --index-info` writes the HEAD side back. Before the first commit the entries leave the index.
+   */
+  private async resetPaths(ctx: JobContext, paths: string[]): Promise<void> {
+    const wanted = underAny(paths);
+    const head = await ctx.git(["rev-parse", "--verify", "-q", "HEAD"], { allowFailure: true });
+    if (head.code !== 0) {
+      const listed = await ctx.git(["ls-files", "-z"]);
+      const drop = [...new Set(listed.stdout.split("\0").filter((p) => p && wanted(p)))];
+      if (drop.length) await ctx.git(["update-index", "--force-remove", "-z", "--stdin"], { input: nulList(drop) });
+      return;
+    }
+    // ":<HEAD mode> <index mode> <HEAD oid> <index oid> <status>" NUL path NUL, for every staged change
+    const staged = (await ctx.git(["diff-index", "--cached", "-z", "--no-renames", "HEAD", "--"])).stdout.split("\0");
+    const info: string[] = [];
+    for (let i = 0; i + 1 < staged.length; i += 2) {
+      const meta = staged[i]!;
+      const path = staged[i + 1]!;
+      if (!meta.startsWith(":") || !wanted(path)) continue;
+      const [headMode = "", , headOid = ""] = meta.slice(1).split(" ");
+      // not in HEAD (added): mode 0 removes the entry; the oid is diff-index's all-zero one, of the repository's length
+      info.push(`${/^0+$/.test(headMode) ? "0" : headMode} ${headOid}\t${path}`);
+    }
+    if (!info.length) return;
+    if (info.length > 1) ctx.log(`${info.length} paths through stdin`);
+    await ctx.git(["update-index", "-z", "--index-info"], { input: nulList(info) });
   }
 
   commit(message: string, amend: boolean, push: boolean): JobInfo {
@@ -695,7 +775,8 @@ export class RepoService {
       const remoteName = name.slice(0, slash);
       const branch = name.slice(slash + 1);
       return this.jobs.enqueue(this.target, `delete ${name}`, async (ctx) => {
-        await ctx.git(["push", "--progress", remoteName, "--delete", branch]);
+        // full ref: a bare name would be ambiguous on a remote that also has a tag of that name
+        await ctx.git(["push", "--progress", remoteName, "--delete", `refs/heads/${branch}`]);
       });
     }
     return this.jobs.enqueue(
@@ -750,24 +831,52 @@ export class RepoService {
           await this.discardAll(ctx);
           return;
         }
-        // which paths git tracks: ls-files of the paths, or of everything when they do not fit one command line
+        // tracked files under the paths: ls-files of the paths, or of everything when they do not fit one command line
         const short = pathsLength(paths) <= PATHS_ON_COMMAND_LINE;
         const listed = await ctx.git(["ls-files", "-z", ...(short ? ["--", ...paths] : [])], { allowFailure: true });
-        const tracked = new Set(listed.stdout.split("\0").filter(Boolean));
-        // a folder path counts as tracked when a tracked file is inside it
+        const wanted = underAny(paths);
+        const tracked = [...new Set(listed.stdout.split("\0").filter((p) => p && wanted(p)))];
+        if (tracked.length) await this.restoreFromHead(ctx, tracked);
+        // a folder path counts as tracked when a tracked file is inside it; the rest is untracked
+        const trackedSet = new Set(tracked);
         const trackedDirs = new Set<string>();
         for (const t of tracked) for (let i = t.indexOf("/"); i > 0; i = t.indexOf("/", i + 1)) trackedDirs.add(t.slice(0, i));
-        const trackedPaths = paths.filter((p) => tracked.has(p) || trackedDirs.has(p.replace(/\/+$/, "")));
-        if (trackedPaths.length) {
-          const ps = pathspec(trackedPaths);
-          await ctx.git(["restore", "--worktree", "--source=HEAD", ...ps.args], ps.opts);
-        }
-        const isTracked = new Set(trackedPaths);
-        // clean has no --pathspec-from-file
-        for (const batch of batches(paths.filter((p) => !isTracked.has(p)))) await ctx.git(["clean", "-f", "-d", "--", ...batch]);
+        const untracked = paths.filter((p) => !trackedSet.has(p) && !trackedDirs.has(p.replace(/\/+$/, "")));
+        // clean has no --pathspec-from-file; it never deletes ignored files or nested repositories
+        for (const batch of batches(untracked)) await ctx.git(["clean", "-f", "-d", "--", ...batch]);
       },
       true,
     );
+  }
+
+  /**
+   * Working copy of these tracked files back to HEAD, the index left as it is (`git restore --worktree --source=HEAD`).
+   * A file whose index entry equals HEAD's (the usual case) is written from the index by `checkout-index -u`, which
+   * also stores the new file size and time in the index. `restore --worktree --source=HEAD` does not: with autocrlf
+   * the restored file gets CRLF, its size no longer matches the index, and git then reports it modified without
+   * reading it, so discarded files stayed in the list. Only files with staged changes or conflicts go through restore
+   * (whose pathspec matching also costs paths × index size, see pathspec()).
+   */
+  private async restoreFromHead(ctx: JobContext, files: string[]): Promise<void> {
+    let viaRestore = files;
+    let viaIndex: string[] = [];
+    const head = await ctx.git(["rev-parse", "--verify", "-q", "HEAD"], { allowFailure: true });
+    if (head.code === 0) {
+      const staged = new Set<string>();
+      const out = (await ctx.git(["diff-index", "--cached", "-z", "--no-renames", "HEAD", "--"])).stdout.split("\0");
+      for (let i = 0; i + 1 < out.length; i += 2) if (out[i]!.startsWith(":")) staged.add(out[i + 1]!);
+      viaIndex = files.filter((p) => !staged.has(p));
+      viaRestore = files.filter((p) => staged.has(p));
+    }
+    if (viaIndex.length) {
+      if (viaIndex.length > 1) ctx.log(`${viaIndex.length} paths through stdin`);
+      // -u: the new size and time go into the index (see above), the file is not reported modified afterwards
+      await ctx.git(["checkout-index", "-u", "-f", "-z", "--stdin"], { input: nulList(viaIndex) });
+    }
+    if (viaRestore.length) {
+      const ps = pathspec(viaRestore);
+      await ctx.git(["restore", "--worktree", "--source=HEAD", ...ps.args], ps.opts);
+    }
   }
 
   /** Appends patterns to the .gitignore at the repository root. */
@@ -937,13 +1046,14 @@ export class RepoService {
       this.target,
       `${label}: ${describePaths(paths)}`,
       async (ctx) => {
-        const ps = pathspec(paths);
         if (take !== "mark") {
-          // a side may not exist (added on one branch only): checkout fails for it, then the file is simply staged/removed
-          const r = await ctx.git(["checkout", `--${take}`, ...ps.args], { ...ps.opts, allowFailure: true });
-          if (r.code !== 0) ctx.log("some files exist on one side only, staging what is there");
+          // --no-overlay: a file the chosen side deleted is deleted. A plain `checkout --ours` refuses the whole list
+          // when one file lacks that side, and staging the files as they are would then commit the conflict markers of
+          // all the others; so a failure here stops the job before anything is staged.
+          const ps = pathspec(paths);
+          await ctx.git(["checkout", "--no-overlay", `--${take}`, ...ps.args], ps.opts);
         }
-        await ctx.git(["add", "-A", ...ps.args], ps.opts);
+        await this.addPaths(ctx, paths);
       },
       true,
     );
@@ -1074,7 +1184,9 @@ export class RepoService {
     const upstream = await ctx.git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {
       allowFailure: true,
     });
-    const forceArgs = force ? ["--force-with-lease"] : [];
+    // --force-if-includes: the lease alone passes after a fetch brought in someone else's push; this also refuses
+    // when the commits being overwritten were never part of the local branch
+    const forceArgs = force ? ["--force-with-lease", "--force-if-includes"] : [];
     if (upstream.code === 0) {
       await ctx.git(["push", "--progress", ...forceArgs]);
       return;
@@ -1114,10 +1226,18 @@ export function enqueueClone(
   const target: JobTarget = { id: `clone:${dest}`, name: basename(dest), path: parent };
   return jobs.enqueue(target, `clone ${url}`, async (ctx) => {
     if (!existsSync(parent)) mkdirSync(parent, { recursive: true });
+    const existed = existsSync(dest);
     const args = ["clone", "--progress"];
     if (recurse) args.push("--recurse-submodules");
     args.push("--", url, dest);
-    await ctx.git(args);
+    try {
+      await ctx.git(args);
+    } catch (e) {
+      // a cancel kills the clone, and a killed git cannot remove its half-made folder (a failing one does that itself);
+      // only a folder this clone created is removed
+      if (!existed && ctx.signal.aborted) await rm(dest, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
+      throw e;
+    }
     onDone(dest);
   });
 }

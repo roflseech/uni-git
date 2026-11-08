@@ -1,12 +1,17 @@
 /**
- * Thin wrapper over the git CLI. Git never waits for terminal input here (GIT_TERMINAL_PROMPT=0);
- * askpass through the UI arrives in a later iteration.
+ * Thin wrapper over the git CLI. Git never waits for terminal input here (GIT_TERMINAL_PROMPT=0); prompts of jobs
+ * go to the UI through askpass (askpass.ts).
  */
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 export interface GitRunOptions {
   cwd: string;
+  /**
+   * Cancel. Only commands that just talk to a remote (INTERRUPTIBLE) are stopped mid-way; anything that writes the
+   * index, the working copy or refs runs to its end and the job stops before its next command.
+   */
   signal?: AbortSignal;
   /** Receives stderr chunks as they arrive (progress of clone/fetch/push). */
   onStderr?: (chunk: string) => void;
@@ -16,8 +21,47 @@ export interface GitRunOptions {
   /** Resolve with the non-zero exit code instead of rejecting. */
   allowFailure?: boolean;
   env?: Record<string, string>;
-  /** Stop collecting stdout after this many bytes (the process is killed). */
+  /** Read-only commands: stop collecting stdout after this many bytes (the process is killed, `truncated` is set). */
   maxOutput?: number;
+}
+
+/**
+ * Commands a cancel may kill: they only transfer data or wait for a credential prompt, and a killed one leaves nothing
+ * half-done in the repository. Killing a command that writes locally is not safe: Windows terminates without cleanup
+ * (index.lock stays behind and blocks every later command), and on macOS a checkout or merge stops with the working
+ * copy half updated. `pull` merges after fetching, so it is not in the list either.
+ */
+const INTERRUPTIBLE = new Set(["fetch", "push", "clone", "ls-remote", "credential"]);
+
+/** The git subcommand of an argument list (after any `-c key=value`). */
+export function gitSubcommand(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "-c" || a === "-C") i++;
+    else if (!a.startsWith("-")) return a;
+  }
+  return undefined;
+}
+
+/**
+ * Ends the process and everything it started. On Windows `git` usually is Git for Windows' launcher (cmd\git.exe):
+ * killing it alone leaves the real git.exe and its helpers (remote-https, index-pack, ssh, git-lfs) running, so a
+ * "cancelled" fetch went on to the end. `group`: the child leads its own process group (POSIX, spawned detached).
+ */
+function killTree(child: ChildProcess, group: boolean): void {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === "win32") {
+    const taskkill = join(process.env["SystemRoot"] ?? "C:\\Windows", "System32", "taskkill.exe");
+    const k = spawn(taskkill, ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    k.on("error", () => child.kill());
+    return;
+  }
+  try {
+    if (group) process.kill(-child.pid, "SIGTERM");
+    else child.kill("SIGTERM");
+  } catch {
+    child.kill("SIGTERM");
+  }
 }
 
 export interface GitResult {
@@ -71,6 +115,9 @@ export function git(args: string[], opts: GitRunOptions): Promise<GitResult> {
       reject(new Error("cancelled"));
       return;
     }
+    const interruptible = INTERRUPTIBLE.has(gitSubcommand(args) ?? "");
+    // POSIX: an interruptible command leads its own process group, so a cancel also ends ssh / remote helpers
+    const group = interruptible && process.platform !== "win32";
     const child = spawn(gitExecutable, [...BASE_ARGS, ...args], {
       cwd: opts.cwd,
       env: {
@@ -83,20 +130,23 @@ export function git(args: string[], opts: GitRunOptions): Promise<GitResult> {
       },
       stdio: [opts.input !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
       windowsHide: true,
+      detached: group,
     });
 
     const out: Buffer[] = [];
     const err: Buffer[] = [];
     let outBytes = 0;
     let truncated = false;
-    const max = opts.maxOutput ?? 64 * 1024 * 1024;
+    // no default limit: a silently cut status or file list is worse than a big one
+    const max = opts.maxOutput ?? Infinity;
+    let killed = false;
 
     child.stdout?.on("data", (chunk: Buffer) => {
       if (truncated) return;
       outBytes += chunk.length;
       if (outBytes > max) {
         truncated = true;
-        child.kill();
+        killTree(child, group);
         return;
       }
       out.push(chunk);
@@ -108,7 +158,9 @@ export function git(args: string[], opts: GitRunOptions): Promise<GitResult> {
     });
 
     const onAbort = () => {
-      child.kill();
+      if (!interruptible) return; // finishes; the job stops before its next command
+      killed = true;
+      killTree(child, group);
     };
     opts.signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -132,7 +184,7 @@ export function git(args: string[], opts: GitRunOptions): Promise<GitResult> {
         stderr: Buffer.concat(err).toString("utf8"),
         truncated,
       };
-      if (opts.signal?.aborted) {
+      if (killed) {
         reject(new Error("cancelled"));
         return;
       }

@@ -18,6 +18,8 @@ import { renderOverlay } from "./views/overlay.js";
 import { renderUpdateBar } from "./views/updatebar.js";
 
 const LOG_PAGE = 100;
+/** characters of a job log kept in the UI (the backend keeps the same tail, backend/src/jobs.ts) */
+const JOB_LOG_LIMIT = 256 * 1024;
 
 function emptyTemplate(): TaskTemplate {
   return { codePattern: "", branchTemplate: "{name}", types: [], commitTemplate: "", linkTemplate: "" };
@@ -154,7 +156,9 @@ export class App {
         break;
       }
       case "jobLog": {
-        const logs = { ...s.jobLogs, [e.jobId]: (s.jobLogs[e.jobId] ?? "") + e.chunk };
+        // the tail only, as the backend keeps it: staging thousands of files can print a line per file
+        const text = (s.jobLogs[e.jobId] ?? "") + e.chunk;
+        const logs = { ...s.jobLogs, [e.jobId]: text.length > JOB_LOG_LIMIT ? text.slice(text.length - JOB_LOG_LIMIT) : text };
         this.store.set({ jobLogs: logs });
         break;
       }
@@ -413,8 +417,11 @@ export class App {
   }
 
   unstage(paths: string[]): void {
+    // a staged rename is one row (path, oldPath): its old path goes back too, or the deletion of it would stay staged
+    const set = new Set(paths);
+    const renamedFrom = (this.state.status?.staged ?? []).filter((f) => f.kind === "R" && f.oldPath && set.has(f.path)).map((f) => f.oldPath!);
     this.moveLocally(paths, "staged");
-    this.sendMove("/repo/unstage", paths);
+    this.sendMove("/repo/unstage", [...paths, ...renamedFrom.filter((p) => !set.has(p))]);
   }
 
   /** stage/unstage requests whose job is not in the state yet */
@@ -430,8 +437,11 @@ export class App {
     });
   }
 
-  /** A stage/unstage is queued or running; a status read now could still show the state before it. */
-  private movingFiles(repoId: string): boolean {
+  /**
+   * A stage/unstage is queued or running; a status read now could still show the state before it, and a commit now
+   * would take whatever that job ends up staging (nothing at all if it fails), not what the lists show.
+   */
+  movingFiles(repoId: string): boolean {
     return this.movesInFlight > 0 || this.state.jobs.some((j) => j.repoId === repoId && j.quiet && isActive(j));
   }
 
@@ -558,6 +568,7 @@ export class App {
   }
 
   testRepoAuth(): void {
+    if (this.isBusy()) return;
     void this.mutate("/repo/auth/test", {});
   }
 
@@ -1270,6 +1281,12 @@ export class App {
   async openRepoSettings(): Promise<void> {
     const repoId = this.state.repoId;
     if (!this.api || !repoId) return;
+    // settings write .git/config directly: not while an operation of this repository runs (the backend refuses too)
+    const busy = this.busyJob(repoId);
+    if (busy) {
+      this.toast(`Repository is busy (${busy.title}): open Repo Settings when it is done`, "error");
+      return;
+    }
     try {
       const view = await this.api.call("/repo/settings", { repoId });
       this.store.set({ presets: view.presets });
@@ -1297,6 +1314,8 @@ export class App {
     const d = this.state.dialog;
     const repoId = this.state.repoId;
     if (!this.api || !repoId || d?.kind !== "repo-settings") return;
+    // the dialog stays open with its edits while an operation runs; Save is offered again when it is done
+    if (this.isBusy(repoId)) return;
     this.updateDialog({ saving: true });
     try {
       await this.api.call("/repo/settings/save", {
@@ -1825,6 +1844,13 @@ export class App {
 
   jobsFor(repoId: string): JobInfo[] {
     return this.state.jobs.filter((j) => j.repoId === repoId && isActive(j));
+  }
+
+  /** The operation that makes the repository busy, as banners name it: the running one, else the first queued. Quiet jobs (stage/unstage) block nothing. */
+  busyJob(repoId: string | null = this.state.repoId): JobInfo | undefined {
+    if (!repoId) return undefined;
+    const jobs = this.jobsFor(repoId).filter((j) => !j.quiet);
+    return jobs.find((j) => j.state === "running") ?? jobs[0];
   }
 
   configOrEmpty(): AppConfig {

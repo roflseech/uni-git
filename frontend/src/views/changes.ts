@@ -139,8 +139,7 @@ export class ChangesView {
 
   /** The job the busy banner names: the running one, else the first queued. Quiet jobs (stage/unstage) block nothing. */
   private bannerJob(): JobInfo | undefined {
-    const jobs = this.app.jobsFor(this.app.state.repoId ?? "").filter((j) => !j.quiet);
-    return jobs.find((j) => j.state === "running") ?? jobs[0];
+    return this.app.busyJob();
   }
 
   /** What this view shows of the jobs. */
@@ -423,13 +422,16 @@ export class ChangesView {
     const hasStaged = !!s.status && s.status.staged.length > 0;
     const hasConflicts = !!s.status && s.status.conflicts.length > 0;
     const mergeDone = !!s.status && s.status.operation === "merge" && !hasConflicts;
-    const can = !!s.status && !busy && !hasConflicts && (hasStaged || s.amend || mergeDone) && this.subject.value.trim().length > 0;
+    // the lists already show a stage/unstage that is still running: commit once it is done, so that the commit holds
+    // what the lists show (a failed stage would otherwise leave the commit with less, or nothing)
+    const staging = !!s.repoId && this.app.movingFiles(s.repoId);
+    const can = !!s.status && !busy && !staging && !hasConflicts && (hasStaged || s.amend || mergeDone) && this.subject.value.trim().length > 0;
     this.btnCommit.disabled = !can;
     this.btnCommitPush.disabled = !can;
     this.amend.disabled = !s.status || busy || !s.status.head;
     this.subject.disabled = !s.status;
     this.desc.disabled = !s.status;
-    this.btnCommit.title = hasConflicts ? "Resolve conflicts first" : !hasStaged && !s.amend ? "Stage changes first" : "";
+    this.btnCommit.title = hasConflicts ? "Resolve conflicts first" : staging ? "Staging is still running" : !hasStaged && !s.amend ? "Stage changes first" : "";
   }
 
   /** A merge in progress: the commit form starts with git's own merge message. */

@@ -269,6 +269,15 @@ export class Backend {
     return { ...s, dataDir: this.opts.dataDir, gitVersion, gitResolved: getGitExecutable(), gcmVersion, unityYamlMergeFound };
   }
 
+  /**
+   * Repo Settings write .git/config directly, outside the job queue; while an operation of the repository runs
+   * (fetch, push -u, remote add, branch rename… write it too, and the branch list may be changing) they wait.
+   */
+  private requireIdle(repoId: string): void {
+    const job = this.jobs.busyWith(repoId);
+    if (job) throw new HttpError(409, `Repository is busy (${job.title}): save the settings when it is done`, "busy");
+  }
+
   private repo(id: string): RepoService {
     let svc = this.repos.get(id);
     const entry = this.config.repo(id);
@@ -387,20 +396,19 @@ export class Backend {
       "/repo/status": ({ repoId }) => this.repo(repoId).status(this.opts.dataDir),
       "/repo/refs": ({ repoId }) => this.repo(repoId).refs(),
       "/repo/diff": ({ repoId, file }) => this.repo(repoId).diff(file),
-      "/repo/stage": ({ repoId, paths }) => ({ job: this.repo(repoId).stage(requirePaths(paths)) }),
-      "/repo/unstage": ({ repoId, paths }) => ({ job: this.repo(repoId).unstage(requirePaths(paths)) }),
+      "/repo/stage": ({ repoId, paths }) => ({ job: this.repo(repoId).stage(requireFilePaths(paths)) }),
+      "/repo/unstage": ({ repoId, paths }) => ({ job: this.repo(repoId).unstage(requireFilePaths(paths)) }),
       "/repo/commit": ({ repoId, message, amend, push }) => {
         if (!message.trim()) throw new HttpError(400, "commit message is empty");
         return { job: this.repo(repoId).commit(message, amend, push) };
       },
-      "/repo/log": ({ repoId, skip, limit, text, author, ref, task }) => this.repo(repoId).log(skip, limit, text, author, ref, task),
-      "/repo/commit-details": ({ repoId, sha }) => this.repo(repoId).commitDetails(sha),
-      "/repo/commit-branches": async ({ repoId, sha }) => ({ branches: await this.repo(repoId).commitBranches(sha) }),
-      "/repo/commit-diff": ({ repoId, sha, path }) => this.repo(repoId).commitDiff(sha, path),
-      "/repo/checkout": ({ repoId, branch, remote, stash, discard }) => {
-        if (!branch.trim()) throw new HttpError(400, "branch name is empty");
-        return { job: this.repo(repoId).checkout(branch.trim(), remote, stash, discard === true) };
-      },
+      "/repo/log": ({ repoId, skip, limit, text, author, ref, task }) => this.repo(repoId).log(skip, limit, text, author, optionalArg(ref, "ref") || undefined, task),
+      "/repo/commit-details": ({ repoId, sha }) => this.repo(repoId).commitDetails(requireArg(sha, "commit")),
+      "/repo/commit-branches": async ({ repoId, sha }) => ({ branches: await this.repo(repoId).commitBranches(requireArg(sha, "commit")) }),
+      "/repo/commit-diff": ({ repoId, sha, path }) => this.repo(repoId).commitDiff(requireArg(sha, "commit"), requireFilePaths([path])[0]!),
+      "/repo/checkout": ({ repoId, branch, remote, stash, discard }) => ({
+        job: this.repo(repoId).checkout(requireArg(branch, "branch name"), remote, stash, discard === true),
+      }),
       "/repo/fetch": ({ repoId }) => ({ job: this.repo(repoId).fetch() }),
       "/repo/pull": ({ repoId, discard }) => ({ job: this.repo(repoId).pull(discard === true) }),
       "/repo/push": ({ repoId, force, tags }) => ({ job: this.repo(repoId).push(force === true, tags === true) }),
@@ -410,29 +418,27 @@ export class Backend {
         });
         return { job: this.repo(repoId).mergeScenario(this.opts.dataDir, mode, stash) };
       },
-      "/repo/conflict/resolve": ({ repoId, paths, take }) => ({ job: this.repo(repoId).resolveConflict(requirePaths(paths), take) }),
-      "/repo/unity/preview": ({ repoId, path, area, kind, sha }) => this.repo(repoId).unityPreview(requirePaths([path])[0]!, area, kind, sha?.trim() || undefined),
-      "/repo/unity/resolve": ({ repoId, path, choices }) => ({ job: this.repo(repoId).unityResolve(requirePaths([path])[0]!, choices ?? {}) }),
-      "/repo/unity/yamlmerge": ({ repoId, paths }) => ({ job: this.repo(repoId).unityYamlMerge(requirePaths(paths)) }),
+      "/repo/conflict/resolve": ({ repoId, paths, take }) => ({ job: this.repo(repoId).resolveConflict(requireFilePaths(paths), take) }),
+      "/repo/unity/preview": ({ repoId, path, area, kind, sha }) => this.repo(repoId).unityPreview(requireFilePaths([path])[0]!, area, kind, optionalArg(sha, "commit") || undefined),
+      "/repo/unity/resolve": ({ repoId, path, choices }) => ({ job: this.repo(repoId).unityResolve(requireFilePaths([path])[0]!, choices ?? {}) }),
+      "/repo/unity/yamlmerge": ({ repoId, paths }) => ({ job: this.repo(repoId).unityYamlMerge(requireFilePaths(paths)) }),
       "/repo/operation/abort": ({ repoId }) => ({ job: this.repo(repoId).abortOperation() }),
       "/repo/operation/continue": ({ repoId }) => ({ job: this.repo(repoId).continueOperation() }),
-      "/repo/cherry-pick": ({ repoId, shas }) => ({ job: this.repo(repoId).cherryPick(requirePaths(shas)) }),
+      "/repo/cherry-pick": ({ repoId, shas }) => ({ job: this.repo(repoId).cherryPick(requirePaths(shas).map((s) => requireArg(s, "commit"))) }),
       "/repo/stash/save": ({ repoId, message, includeUntracked }) => ({ job: this.repo(repoId).stashSave(message, includeUntracked) }),
-      "/repo/stash/apply": ({ repoId, ref, pop }) => ({ job: this.repo(repoId).stashApply(ref, pop) }),
-      "/repo/stash/drop": ({ repoId, ref }) => ({ job: this.repo(repoId).stashDrop(ref) }),
-      "/repo/stash/sha": async ({ repoId, ref }) => ({ sha: await this.repo(repoId).stashSha(ref) }),
-      "/repo/tag/create": ({ repoId, name, sha, message, push }) => {
-        if (!name.trim()) throw new HttpError(400, "tag name is empty");
-        return { job: this.repo(repoId).tagCreate(name.trim(), sha, message, push) };
-      },
-      "/repo/tag/delete": ({ repoId, name, remote }) => ({ job: this.repo(repoId).tagDelete(name, remote) }),
-      "/repo/tag/push": ({ repoId, name }) => ({ job: this.repo(repoId).tagPush(name) }),
-      "/repo/remote/add": ({ repoId, name, url }) => {
-        if (!name.trim() || !url.trim()) throw new HttpError(400, "remote name and URL are required");
-        return { job: this.repo(repoId).remoteAdd(name.trim(), url.trim()) };
-      },
-      "/repo/remote/remove": ({ repoId, name }) => ({ job: this.repo(repoId).remoteRemove(name) }),
-      "/repo/remote/url": async ({ repoId, name }) => ({ url: await this.repo(repoId).remoteUrl(name) }),
+      "/repo/stash/apply": ({ repoId, ref, pop }) => ({ job: this.repo(repoId).stashApply(requireArg(ref, "stash"), pop) }),
+      "/repo/stash/drop": ({ repoId, ref }) => ({ job: this.repo(repoId).stashDrop(requireArg(ref, "stash")) }),
+      "/repo/stash/sha": async ({ repoId, ref }) => ({ sha: await this.repo(repoId).stashSha(requireArg(ref, "stash")) }),
+      "/repo/tag/create": ({ repoId, name, sha, message, push }) => ({
+        job: this.repo(repoId).tagCreate(requireArg(name, "tag name"), optionalArg(sha, "commit"), message, push),
+      }),
+      "/repo/tag/delete": ({ repoId, name, remote }) => ({ job: this.repo(repoId).tagDelete(requireArg(name, "tag name"), remote) }),
+      "/repo/tag/push": ({ repoId, name }) => ({ job: this.repo(repoId).tagPush(requireArg(name, "tag name")) }),
+      "/repo/remote/add": ({ repoId, name, url }) => ({
+        job: this.repo(repoId).remoteAdd(requireArg(name, "remote name"), requireArg(url, "remote URL")),
+      }),
+      "/repo/remote/remove": ({ repoId, name }) => ({ job: this.repo(repoId).remoteRemove(requireArg(name, "remote name")) }),
+      "/repo/remote/url": async ({ repoId, name }) => ({ url: await this.repo(repoId).remoteUrl(requireArg(name, "remote name")) }),
       "/repo/submodule/update": ({ repoId }) => ({ job: this.repo(repoId).submoduleUpdate() }),
       "/repo/merge-message": async ({ repoId }) => ({ message: await this.repo(repoId).mergeMessage() }),
       "/repo/last-message": async ({ repoId }) => ({ message: await this.repo(repoId).lastMessage() }),
@@ -446,12 +452,15 @@ export class Backend {
         return { remotes, username: cfgAuth.username, sshKey: cfgAuth.sshKey, accounts, keys };
       },
       "/repo/auth/save": async ({ repoId, username, sshKey }) => {
-        await this.repo(repoId).saveAuth(username, sshKey);
+        const svc = this.repo(repoId);
+        this.requireIdle(repoId);
+        await svc.saveAuth(username, sshKey);
         return { ok: true };
       },
       "/repo/auth/test": ({ repoId }) => ({ job: this.repo(repoId).testRemotes() }),
       "/repo/settings/save": async ({ repoId, groupId, mainBranch, userName, userEmail, template, presetName }) => {
         const svc = this.repo(repoId);
+        this.requireIdle(repoId);
         if (!cfg.group(groupId)) throw new HttpError(404, "group not found");
         if (template) {
           try {
@@ -476,19 +485,18 @@ export class Backend {
         }
         return { ok: true };
       },
-      "/repo/branch/create": ({ repoId, name, from, checkout }) => {
-        const n = name.trim();
-        if (!n) throw new HttpError(400, "branch name is empty");
-        return { job: this.repo(repoId).createBranch(n, from.trim() || "HEAD", checkout) };
-      },
-      "/repo/branch/delete": ({ repoId, name, remote, force }) => ({ job: this.repo(repoId).deleteBranch(name.trim(), remote, force) }),
-      "/repo/branch/rename": ({ repoId, from, to }) => {
-        if (!to.trim()) throw new HttpError(400, "new name is empty");
-        return { job: this.repo(repoId).renameBranch(from.trim(), to.trim()) };
-      },
-      "/repo/merge": ({ repoId, branch }) => ({ job: this.repo(repoId).merge(branch.trim()) }),
-      "/repo/merged-into": async ({ repoId, branch, into }) => ({ merged: await this.repo(repoId).mergedInto(branch, into) }),
-      "/repo/discard": ({ repoId, paths, all }) => ({ job: all === true ? this.repo(repoId).discard([], true) : this.repo(repoId).discard(requirePaths(paths)) }),
+      "/repo/branch/create": ({ repoId, name, from, checkout }) => ({
+        job: this.repo(repoId).createBranch(requireArg(name, "branch name"), optionalArg(from, "start point") || "HEAD", checkout),
+      }),
+      "/repo/branch/delete": ({ repoId, name, remote, force }) => ({ job: this.repo(repoId).deleteBranch(requireArg(name, "branch name"), remote, force) }),
+      "/repo/branch/rename": ({ repoId, from, to }) => ({
+        job: this.repo(repoId).renameBranch(requireArg(from, "branch name"), requireArg(to, "new name")),
+      }),
+      "/repo/merge": ({ repoId, branch }) => ({ job: this.repo(repoId).merge(requireArg(branch, "branch name")) }),
+      "/repo/merged-into": async ({ repoId, branch, into }) => ({
+        merged: await this.repo(repoId).mergedInto(requireArg(branch, "branch or commit"), (Array.isArray(into) ? into : []).map((b) => requireArg(b, "branch"))),
+      }),
+      "/repo/discard": ({ repoId, paths, all }) => ({ job: all === true ? this.repo(repoId).discard([], true) : this.repo(repoId).discard(requireFilePaths(paths)) }),
       "/repo/ignore": ({ repoId, patterns }) => ({ job: this.repo(repoId).ignore(requirePaths(patterns)) }),
       "/repo/apply-patch": ({ repoId, patch, reverse }) => {
         if (!patch.trim()) throw new HttpError(400, "empty patch");
@@ -644,16 +652,52 @@ function requireDir(path: string): string {
   return p;
 }
 
+/** Non-path lists (patterns, shas): trimmed, empty entries dropped. */
 function requirePaths(paths: string[]): string[] {
-  const list = paths.map((p) => p.trim()).filter(Boolean);
+  const list = (Array.isArray(paths) ? paths : []).filter((p) => typeof p === "string").map((p) => p.trim()).filter(Boolean);
   if (!list.length) throw new HttpError(400, "no paths given");
   return list;
+}
+
+/**
+ * File paths as status lists them. Not trimmed: " a.txt" is a different file from "a.txt", and discarding the
+ * trimmed name would delete the wrong one. Relative and inside the repository; no NUL (lists go to git NUL-separated).
+ */
+export function requireFilePaths(paths: string[]): string[] {
+  const list = (Array.isArray(paths) ? paths : []).filter((p) => typeof p === "string" && p.length > 0);
+  if (!list.length) throw new HttpError(400, "no paths given");
+  const win = process.platform === "win32";
+  for (const p of list) {
+    const parts = p.split(win ? /[\\/]/ : "/");
+    if (p.includes("\0") || isAbsolute(p) || (win && /^[A-Za-z]:/.test(p)) || parts.includes("..")) {
+      throw new HttpError(400, `not a path inside the repository: ${p}`);
+    }
+  }
+  return list;
+}
+
+/**
+ * A branch, tag, remote, ref or sha that goes on git's command line as an argument. One that starts with "-" would be
+ * read as an option: a new branch named "-D" made `git branch -D <from>` delete <from>.
+ */
+export function requireArg(value: string | undefined, what: string): string {
+  const v = typeof value === "string" ? value.trim() : "";
+  if (!v) throw new HttpError(400, `${what} is empty`);
+  if (v.startsWith("-")) throw new HttpError(400, `${what} must not start with "-": ${v}`);
+  return v;
+}
+
+/** Optional argument: empty stays empty, anything else as requireArg. */
+function optionalArg(value: string | undefined, what: string): string {
+  return typeof value === "string" && value.trim() ? requireArg(value, what) : "";
 }
 
 /** Opens a folder in the editor. Default: VS Code. macOS GUI apps have a minimal PATH, hence the fallbacks. */
 export function openInEditor(path: string, command: string | undefined): void {
   const tpl = command && command.trim() ? command.trim() : "code {path}";
-  const quoted = `"${path.replace(/"/g, '\\"')}"`;
+  // cmd.exe: double quotes (a Windows path cannot contain one). sh: single quotes, because inside double quotes
+  // $(…) and backticks in a folder name would run as commands.
+  const quoted = process.platform === "win32" ? `"${path}"` : `'${path.replace(/'/g, `'\\''`)}'`;
   const cmd = tpl.includes("{path}") ? tpl.replace("{path}", quoted) : `${tpl} ${quoted}`;
   // Windows: shell:true runs `cmd.exe /d /s /c "<cmd>"` with the command line passed verbatim, so the quotes around
   // the path survive (quoting it ourselves through the args array produced a stray quote in the path).

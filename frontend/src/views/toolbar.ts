@@ -13,7 +13,7 @@ export function renderToolbar(app: App): HTMLElement[] {
   const off = !hasRepo || busy;
   const st = s.status;
 
-  const btn = (label: string, opts: { onclick?: () => void; disabled?: boolean; primary?: boolean; caret?: boolean; count?: string | undefined; menu?: string; title?: string }) =>
+  const btn = (label: string, opts: { onclick?: () => void; disabled?: boolean; primary?: boolean; caret?: boolean; count?: string | undefined; menu?: string; title?: string | undefined }) =>
     h(
       "button",
       {
@@ -42,7 +42,8 @@ export function renderToolbar(app: App): HTMLElement[] {
 
   return [
     btn("Repositories", { caret: true, disabled: !ready, menu: "repos", onclick: () => app.store.set({ openMenu: s.openMenu === "repos" ? null : "repos", contextMenu: null }) }),
-    btn("Repo Settings", { disabled: !hasRepo, onclick: () => void app.openRepoSettings() }),
+    // settings write .git/config directly: not while an operation of this repository runs
+    btn("Repo Settings", { disabled: off, title: hasRepo && busy ? "Repository is busy" : undefined, onclick: () => void app.openRepoSettings() }),
     btn("Global Settings", { disabled: !ready, onclick: () => void app.openGlobalSettings() }),
     h("span", { class: "gap" }),
     btn("Fetch", { disabled: off, onclick: () => app.fetch() }),

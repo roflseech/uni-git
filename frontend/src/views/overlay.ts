@@ -248,7 +248,7 @@ function pushMenu(app: App): HTMLElement {
 }
 
 /** Repo Settings → Authentication: the account and the SSH key this repository uses, written to .git/config. */
-function repoAuthTab(app: App, auth: RepoAuthView | null, username: string, sshKey: string): HTMLElement {
+function repoAuthTab(app: App, auth: RepoAuthView | null, username: string, sshKey: string, busy: boolean): HTMLElement {
   if (!auth) return h("div", { class: "empty" }, "Reading remotes and asking the credential helper…");
   const httpsHosts = [...new Set(auth.remotes.filter((r) => r.protocol === "https").map((r) => r.host))];
   const sshHosts = [...new Set(auth.remotes.filter((r) => r.protocol === "ssh").map((r) => r.host))];
@@ -294,7 +294,7 @@ function repoAuthTab(app: App, auth: RepoAuthView | null, username: string, sshK
     ),
     h("div", { class: "hint" }, sshHosts.length ? `Sets core.sshCommand = ssh -i <key> -o IdentitiesOnly=yes for ${sshHosts.join(", ")}.` : "No ssh remote, the key is not used."),
     h("label", null, ""),
-    h("div", { class: "inlinebtns" }, h("button", { class: "btn small", onclick: () => app.testRepoAuth() }, "Test connection"), h("span", { class: "muted" }, " runs git ls-remote for every remote (save first)")),
+    h("div", { class: "inlinebtns" }, h("button", { class: "btn small", disabled: busy, onclick: () => app.testRepoAuth() }, "Test connection"), h("span", { class: "muted" }, " runs git ls-remote for every remote (save first)")),
   );
 }
 
@@ -658,17 +658,22 @@ function dialog(app: App): HTMLElement {
       h("div", { class: "inlinebtns" }, h("button", { class: "btn small", disabled: !t, onclick: () => app.saveTemplateAsPreset() }, "Save as preset")),
     );
 
+    // an operation of this repository started while the dialog was open: the edits stay, saving waits for it
+    const busyJob = app.busyJob();
+    const busyNote = busyJob
+      ? h("div", { class: "banner" }, h("span", { class: "spin" }), h("span", null, `Repository is busy: ${busyJob.title}. Settings can be saved when it is done.`))
+      : null;
     box = h(
       "div",
       { class: "dlg" },
       h("div", { class: "hd" }, "Repo Settings", h("span", null, repoName)),
       h("div", { class: "tabs" }, tab("general", "General"), tab("template", "Task template"), authTab),
-      h("div", { class: "bd" }, d.tab === "general" ? general : d.tab === "template" ? templateTab : repoAuthTab(app, d.auth, d.authUsername, d.authSshKey), err),
+      h("div", { class: "bd" }, busyNote, d.tab === "general" ? general : d.tab === "template" ? templateTab : repoAuthTab(app, d.auth, d.authUsername, d.authSshKey, !!busyJob), err),
       h(
         "div",
         { class: "ft" },
         h("button", { class: "btn", onclick: () => app.closeDialog() }, "Cancel"),
-        h("button", { class: "btn primary", disabled: d.saving, onclick: () => void app.saveRepoSettings() }, d.saving ? "Saving…" : "Save"),
+        h("button", { class: "btn primary", disabled: d.saving || !!busyJob, title: busyJob ? "Repository is busy" : "", onclick: () => void app.saveRepoSettings() }, d.saving ? "Saving…" : "Save"),
       ),
     );
   } else if (d.kind === "global-settings") {

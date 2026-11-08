@@ -8,6 +8,7 @@ import { git, type GitResult, type GitRunOptions } from "./git.js";
 import { newId } from "./config.js";
 
 export interface JobContext {
+  /** Aborted by a cancel: interruptible git commands are killed, other commands finish and the next one rejects. */
   signal: AbortSignal;
   /** Runs git in the repository, streaming stderr into the job log. */
   git(args: string[], opts?: Partial<Omit<GitRunOptions, "cwd" | "signal">>): Promise<GitResult>;
@@ -119,7 +120,9 @@ export class JobManager extends EventEmitter<JobEvents> {
 
     try {
       await job.run(ctx);
-      this.finish(job, controller.signal.aborted ? "cancelled" : "done");
+      // a cancel that came while a local command was running let it finish: when nothing was left to do, the job is
+      // done (a "cancelled" commit that was in fact made would invite a second one)
+      this.finish(job, "done");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (controller.signal.aborted || msg === "cancelled") {
@@ -168,6 +171,17 @@ export class JobManager extends EventEmitter<JobEvents> {
 
   isBusy(repoId: string): boolean {
     return this.running.has(repoId) || (this.queues.get(repoId)?.length ?? 0) > 0;
+  }
+
+  /**
+   * The operation that makes the repository busy as the UI shows it: the running job, else the first queued one.
+   * Quiet jobs (stage, unstage, discard…) do not count, as in the UI.
+   */
+  busyWith(repoId: string): JobInfo | undefined {
+    const running = this.running.get(repoId);
+    if (running && !running.info.quiet) return { ...running.info };
+    const queued = this.queues.get(repoId)?.find((j) => !j.info.quiet);
+    return queued ? { ...queued.info } : undefined;
   }
 
   list(): JobInfo[] {
