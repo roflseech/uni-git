@@ -500,6 +500,8 @@ export interface Api {
   /** Checks now (downloads and installs a newer version); answers when the check is over. */
   "/update/check": { req: Record<string, never>; res: UpdateState };
   "/shutdown": { req: Record<string, never>; res: { ok: boolean } };
+  /** A line from the page for data/logs/backend.log (the shell swallows the page's console). */
+  "/log": { req: { message: string }; res: { ok: boolean } };
 }
 
 export type ApiRoute = keyof Api;

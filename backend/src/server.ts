@@ -53,6 +53,7 @@ export interface BackendOptions {
 }
 
 const DEFAULT_ORPHAN_TIMEOUT_MS = 15000;
+const UI_LOG_PER_MINUTE = 60;
 
 export class Backend {
   readonly config: ConfigStore;
@@ -66,7 +67,11 @@ export class Backend {
   private pendingLogs = new Map<string, string>();
   private logFlush: NodeJS.Timeout | null = null;
   private hadClient = false;
+  private closed = false;
   private orphanTimer: NodeJS.Timeout | null = null;
+  private uiLogMinute = 0;
+  private uiLogCount = 0;
+  private uiLogDropped = 0;
   private askpass: AskpassBroker | null = null;
   private readonly updater: Updater;
 
@@ -145,6 +150,7 @@ export class Backend {
   }
 
   close(): void {
+    this.closed = true;
     if (this.orphanTimer) clearTimeout(this.orphanTimer);
     this.updater.stop();
     this.watcher.close();
@@ -157,6 +163,8 @@ export class Backend {
   // ───────────── websocket ─────────────
 
   private onClient(ws: WebSocket): void {
+    // the first connection of a session is the normal start; any later one means the page reconnected or reloaded
+    if (this.hadClient) this.opts.log(`UI connected again (${this.clients.size + 1} connected)`);
     this.clients.add(ws);
     this.hadClient = true;
     if (this.orphanTimer) {
@@ -164,7 +172,8 @@ export class Backend {
       this.orphanTimer = null;
     }
     const gone = () => {
-      this.clients.delete(ws);
+      if (!this.clients.delete(ws)) return;
+      if (!this.closed) this.opts.log(`UI connection closed (${this.clients.size} left)`);
       this.checkOrphan();
     };
     ws.on("close", gone);
@@ -185,6 +194,23 @@ export class Backend {
       this.orphanTimer = null;
       if (this.clients.size === 0) this.opts.onShutdownRequest("no UI client for " + Math.round(timeout / 1000) + " s");
     }, timeout);
+  }
+
+  /** Page lines into the backend log; capped so a page stuck in an error loop cannot flood it. */
+  private uiLog(message: string): void {
+    const minute = Math.floor(Date.now() / 60000);
+    if (minute !== this.uiLogMinute) {
+      if (this.uiLogDropped > 0) this.opts.log(`[ui] ${this.uiLogDropped} more lines dropped`);
+      this.uiLogMinute = minute;
+      this.uiLogCount = 0;
+      this.uiLogDropped = 0;
+    }
+    if (++this.uiLogCount > UI_LOG_PER_MINUTE) {
+      this.uiLogDropped++;
+      return;
+    }
+    const line = message.replace(/\s+/g, " ").trim();
+    this.opts.log(`[ui] ${line.length > 2000 ? line.slice(0, 2000) + "…" : line}`);
   }
 
   private send(ws: WebSocket, ev: ServerEvent): void {
@@ -620,6 +646,11 @@ export class Backend {
 
       "/shutdown": () => {
         setTimeout(() => this.opts.onShutdownRequest("requested by the shell"), 10);
+        return { ok: true };
+      },
+
+      "/log": ({ message }) => {
+        this.uiLog(String(message ?? ""));
         return { ok: true };
       },
     };

@@ -4,6 +4,9 @@
  */
 import { App } from "./app.js";
 import { hasShell } from "./session.js";
+import { logUncaughtErrors, uiLog } from "./uilog.js";
+
+logUncaughtErrors();
 
 // Apply the last known theme before the first paint; the backend's setting confirms or corrects it later.
 try {
@@ -36,10 +39,15 @@ if (hasShell()) {
     void app.start();
   });
 
+  // The client library never reconnects: from here on the close button cannot reach this page, and native calls
+  // wait forever. The backend sees the close on its own link to the shell and closes the window instead.
+  Neutralino.events.on("serverOffline", () => uiLog("the page lost its connection to the Neutralino shell (serverOffline)"));
+
   // Hide first, then exit: WebView2 teardown takes ~300 ms and would keep the window visible otherwise.
+  // A failed or hanging hide must not keep the window open.
   Neutralino.events.on("windowClose", async () => {
     app.api?.shutdown();
-    await Neutralino.window.hide();
+    await Promise.race([Neutralino.window.hide().catch(() => {}), new Promise((r) => window.setTimeout(r, 300))]);
     await Neutralino.app.exit();
   });
 } else {

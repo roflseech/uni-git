@@ -9,6 +9,7 @@ import { ApiClient } from "./api.js";
 import { h, replaceChildren, setupSplitter, watchDoubleClicks } from "./dom.js";
 import { findSession, hasShell } from "./session.js";
 import { Store } from "./store.js";
+import { setUiLogSink } from "./uilog.js";
 import { initialState, isActive, repoBusy, type BranchSel, type Dialog, type FileSel, type State, type View } from "./state.js";
 import { renderOps, renderToolbar } from "./views/toolbar.js";
 import { markSelectedBranch, renderSeg, renderTree } from "./views/sidebar.js";
@@ -110,6 +111,7 @@ export class App {
       const session = await findSession((msg) => this.store.set({ bootMessage: msg }));
       const api = new ApiClient(session, hasShell() && typeof NL_PID === "number" ? NL_PID : null);
       this.api = api;
+      setUiLogSink((line) => api.log(line));
       api.connectEvents(
         (e) => this.onEvent(e),
         (connected) => {

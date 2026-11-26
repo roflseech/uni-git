@@ -2,7 +2,8 @@
  * uni-git backend: a Node process next to the Neutralino shell.
  *
  * Starts a local HTTP/WS server with a random port and token, writes both to data/session.json for the
- * shell to read, and exits together with the shell (Neutralino extension link, parent watchdog, /shutdown).
+ * shell to read, and exits together with the shell (Neutralino extension link, parent watchdog, /shutdown). The
+ * extension link also closes the window when the page cannot (see shellLink.ts).
  */
 import { accessSync, appendFileSync, constants, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -11,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { API_VERSION, APP_NAME, type SessionInfo } from "@uni-git/shared";
 import { Backend } from "./server.js";
+import { ShellLink, type ShellHandshake } from "./shellLink.js";
 import { APP_VERSION } from "./version.js";
 
 const startedAt = Date.now();
@@ -103,7 +105,7 @@ async function pingExisting(file: string): Promise<SessionInfo | null> {
 }
 
 /** Neutralino writes one JSON line to stdin when it spawns us as an extension. */
-function readExtensionHandshake(): Promise<{ nlPort: string; nlConnectToken: string; nlExtensionId: string } | null> {
+function readExtensionHandshake(): Promise<ShellHandshake | null> {
   return new Promise((done) => {
     if (process.stdin.isTTY) {
       done(null);
@@ -111,7 +113,7 @@ function readExtensionHandshake(): Promise<{ nlPort: string; nlConnectToken: str
     }
     let buf = "";
     let finished = false;
-    const finish = (v: { nlPort: string; nlConnectToken: string; nlExtensionId: string } | null) => {
+    const finish = (v: ShellHandshake | null) => {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
@@ -130,7 +132,9 @@ function readExtensionHandshake(): Promise<{ nlPort: string; nlConnectToken: str
       try {
         const j = JSON.parse(candidate) as Record<string, unknown>;
         if (j["nlPort"] && j["nlConnectToken"] && j["nlExtensionId"]) {
-          finish({ nlPort: String(j["nlPort"]), nlConnectToken: String(j["nlConnectToken"]), nlExtensionId: String(j["nlExtensionId"]) });
+          const hs: ShellHandshake = { nlPort: String(j["nlPort"]), nlConnectToken: String(j["nlConnectToken"]), nlExtensionId: String(j["nlExtensionId"]) };
+          if (j["nlToken"]) hs.nlToken = String(j["nlToken"]);
+          finish(hs);
           return;
         }
       } catch {
@@ -163,6 +167,7 @@ async function main(): Promise<void> {
 
   const token = randomBytes(24).toString("hex");
   let shuttingDown = false;
+  let shell: ShellLink | null = null;
   const shutdown = (reason: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -174,7 +179,8 @@ async function main(): Promise<void> {
     } catch {
       /* nothing to clean */
     }
-    setTimeout(() => process.exit(0), 50).unref();
+    // While the window is closing, stay until the shell is gone: if the page fails to exit it, the link does.
+    void (shell?.shellExit() ?? Promise.resolve()).finally(() => setTimeout(() => process.exit(0), 50).unref());
   };
 
   let shellPid: number | null = null;
@@ -229,13 +235,16 @@ async function main(): Promise<void> {
       : `no extension handshake on stdin (isTTY=${String(process.stdin.isTTY)}), relying on client presence and parent watchdog`,
   );
   if (hs) {
+    if (!hs.nlToken) log("the shell sent no access token: a stuck window can only be closed by killing it");
     try {
-      const ws = new WebSocket(
-        `ws://127.0.0.1:${hs.nlPort}?extensionId=${encodeURIComponent(hs.nlExtensionId)}&connectToken=${encodeURIComponent(hs.nlConnectToken)}`,
-      );
-      ws.addEventListener("open", () => log("connected to the Neutralino shell"));
-      ws.addEventListener("close", (ev) => shutdown(`shell connection closed (code ${ev.code})`));
-      ws.addEventListener("error", () => shutdown("shell connection failed"));
+      shell = new ShellLink({
+        handshake: hs,
+        log,
+        onClosed: (reason) => shutdown(reason),
+        shellPid: () => shellPid,
+        isAlive,
+      });
+      shell.connect();
     } catch (e) {
       log(`shell link unavailable: ${(e as Error).message}`);
     }

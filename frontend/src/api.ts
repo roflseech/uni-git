@@ -45,6 +45,11 @@ export class ApiClient {
     }
   }
 
+  /** Fire-and-forget line for data/logs/backend.log. */
+  log(message: string): void {
+    this.call("/log", { message }).catch(() => {});
+  }
+
   /** Fire-and-forget shutdown used while the window is closing. */
   shutdown(): void {
     try {

@@ -26,6 +26,12 @@ are excluded by `cli.extensionsExclude`).
 - Shutdown: the frontend calls `/shutdown` on `windowClose` and passes the shell pid (`NL_PID`) when it connects to
   the events socket; the backend polls that pid every 250 ms and exits as soon as the shell is gone (measured: ~220 ms
   after a force kill). The 15 s no-client timeout applies only when the pid is unknown (page opened in a browser).
+  Node does not report the extension socket closing when the shell exits (Windows): rely on the pid, not on that socket.
+- Stuck close: `neutralino.js` never reconnects its socket to the shell, and once that socket drops the page gets no
+  `windowClose`, so with `exitProcessOnClose: false` the X button does nothing. The shell also sends its events to
+  extensions, so the backend (`backend/src/shellLink.ts`) sees `windowClose` too. If the shell is still alive 1.5 s
+  later, the backend calls `window.hide` + `app.exit` itself (with `nlToken` from the handshake), and kills the shell pid
+  as the last resort. Shell events and the page's `/log` lines (`serverOffline`, uncaught errors) go to `backend.log`.
 - Dev mode (`npm run dev`) runs the shell with `--enable-extensions=false` and the backend under `tsx watch` instead,
   with `--data-dir ../app/data` so both modes share the same `data/`.
 
