@@ -959,7 +959,7 @@ export class RepoService {
       const main = (await this.mainBranch(dataDir)).name;
       const current = (await ctx.git(["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim();
       if (current === "HEAD") throw new Error("HEAD is detached, switch to a branch first");
-      if (current === main && mode !== "force-main") throw new Error(`Already on ${main}`);
+      if (current === main) throw new Error(`Already on ${main}`);
       const remote = mode === "main" ? "origin" : await this.defaultRemote(ctx);
       // the same plan the UI previews on hover
       const steps = mergePlan(mode, { main, current, remote, stash });

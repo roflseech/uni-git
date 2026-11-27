@@ -496,6 +496,8 @@ export interface Api {
   "/jobs/log": { req: { jobId: string }; res: { log: string } };
   "/jobs/cancel": { req: { jobId: string }; res: { ok: boolean } };
   "/os/open-in-editor": { req: { path: string }; res: { ok: boolean } };
+  /** The folder in Explorer (Windows) / Finder (macOS). */
+  "/os/open-in-file-manager": { req: { path: string }; res: { ok: boolean } };
   "/update/status": { req: Record<string, never>; res: UpdateState };
   /** Checks now (downloads and installs a newer version); answers when the check is over. */
   "/update/check": { req: Record<string, never>; res: UpdateState };

@@ -59,9 +59,16 @@ a { color: var(--accent); cursor: pointer; text-decoration: underline; }
 
 #app { height: 100%; display: flex; flex-direction: column; }
 
-/* toolbar */
-.toolbar { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 10px; border-bottom: 1px solid var(--line-soft); flex: none; }
-.toolbar .gap { width: 1px; height: 22px; background: var(--line); margin: 0 4px; flex: none; }
+/* toolbar: three clusters (.tb-group: settings, git operations, Open + branch) that wrap onto more rows as whole
+   units in a narrow window. A cluster's separator line sits in its left padding. .tb-flow sticks out to the left by
+   that padding and .tb-clip cuts it off, so the first cluster of every row has its line hidden. */
+.toolbar { flex: none; padding: 0 7px; border-bottom: 1px solid var(--line-soft); }
+.toolbar .tb-clip { overflow: hidden; padding: 8px 3px 7px; } /* 3px: room for focus outlines */
+.toolbar .tb-flow { display: flex; flex-wrap: wrap; align-items: center; row-gap: 6px; margin-left: -19px; }
+.toolbar .tb-group { position: relative; display: flex; align-items: center; gap: 6px; padding-left: 19px; flex: none; }
+.toolbar .tb-group::before { content: ""; position: absolute; left: 9px; top: 3px; bottom: 3px; width: 1px; background: var(--line); }
+/* takes the rest of its row: Open stays next to the operations, the branch goes to the right edge and shortens */
+.toolbar .tb-right { flex: 1 1 240px; }
 .toolbar .branch { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 460px; }
 .toolbar .branch .name { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toolbar .branch .ab { font-family: var(--mono); font-size: 11px; color: var(--ink-3); flex: none; }
@@ -146,6 +153,9 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 .colhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--line-soft); font-weight: 600; flex: none; position: sticky; top: 0; z-index: 1; }
 .colhead .tools { display: flex; gap: 6px; font-weight: 400; flex: none; }
 .files-col .colhead > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* a narrow file list puts the section buttons under the title (and then on two rows), not past the column edge */
+.files-col .colhead { flex-wrap: wrap; row-gap: 4px; padding-top: 3px; padding-bottom: 3px; }
+.files-col .colhead .tools { flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; margin-left: auto; }
 .colhead .file { font-family: var(--mono); font-weight: 400; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .colhead .muted { font-weight: 400; }
 
@@ -174,13 +184,11 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 .diff .hunk { color: var(--ink-3); padding: 3px 10px; background: var(--panel); position: sticky; left: 0; display: flex; align-items: center; gap: 10px; }
 .diff .hunk .hdr { flex: 1; }
 .diff .hunk .btn { font-family: system-ui, sans-serif; }
-.diff .rows { display: grid; grid-template-columns: 40px minmax(max-content, 1fr) 40px minmax(max-content, 1fr); }
-.diff.inline .rows { grid-template-columns: 40px 40px minmax(max-content, 1fr); }
+.diff .rows { display: grid; grid-template-columns: 40px 40px minmax(max-content, 1fr); }
 .diff .rows > div { padding: 0 8px; white-space: pre; }
 .diff .n { color: var(--ink-3); text-align: right; user-select: none; -webkit-user-select: none; }
 .diff .add { background: var(--ok-soft); }
 .diff .del { background: var(--bad-soft); }
-.diff .pad { background: var(--panel); }
 .diff .n.add { background: color-mix(in srgb, var(--ok-soft) 70%, var(--paper)); }
 .diff .n.del { background: color-mix(in srgb, var(--bad-soft) 70%, var(--paper)); }
 .diff .nonl { color: var(--ink-3); }
@@ -188,6 +196,7 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 
 .commitform { border-top: 1px solid var(--line-soft); padding: 10px; display: flex; flex-direction: column; gap: 8px; flex: none; background: var(--paper); }
 .commitform .row { display: flex; gap: 8px; align-items: center; }
+.commitform .row.actions { flex-wrap: wrap; row-gap: 6px; justify-content: flex-end; }
 .check { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; cursor: pointer; }
 .check input { margin: 0; accent-color: var(--accent); }
 .banner { margin: 10px; padding: 9px 12px; background: var(--busy-soft); color: var(--busy); border-radius: var(--r); display: flex; gap: 10px; align-items: center; line-height: 1.4; flex: none; }
@@ -277,6 +286,13 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 .menu .bn { display: inline-block; margin: 0 1px; padding: 0 5px; border: 1px solid var(--accent-line); border-radius: 3px; background: var(--accent-soft); color: var(--accent); font: 600 11.5px/17px var(--mono); vertical-align: 1px; }
 .menu .group .meta .bn { font-size: 10.5px; line-height: 15px; font-weight: 400; }
 .menu .sep { height: 1px; background: var(--line-soft); margin: 6px 2px; }
+/* Open menu: what gets opened is a heading (kind, name, folder), the apps are the items under it */
+.menu .target { padding: 6px 8px 4px; }
+.menu .target .kind { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
+.menu .target .tname { margin-top: 1px; font-size: 14px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .target .tpath { margin-top: 1px; font: 11px/1.4 var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .item.app { padding-left: 16px; }
+.menu .item.app b { font-weight: 600; color: var(--accent); }
 .led { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
 .led.busy { background: var(--busy); } .led.off { background: var(--line); }
 

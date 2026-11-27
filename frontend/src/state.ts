@@ -24,7 +24,6 @@ import type {
 } from "@uni-git/shared";
 
 export type View = "changes" | "commits";
-export type DiffMode = "side" | "inline";
 
 export interface FileSel {
   area: ChangeArea;
@@ -148,7 +147,6 @@ export interface State {
   selectedFiles: FileSel[];
   diff: FileDiff | null;
   diffLoading: boolean;
-  diffMode: DiffMode;
   /** Unity scenes/prefabs show objects and properties instead of YAML (the "Preview" checkbox over the diff) */
   unityPreview: boolean;
   /** preview of the selected file in Changes; null until loaded */
@@ -178,7 +176,7 @@ export interface State {
   jobLogs: Record<string, string>;
   logJobId: string | null;
 
-  openMenu: "repos" | "code" | "merge" | "push" | "pull" | null;
+  openMenu: "repos" | "open" | "merge" | "push" | "pull" | null;
   /** Branch menu: item under the cursor, for the command preview */
   menuHover: string | null;
   contextMenu: ContextMenu | null;
@@ -217,7 +215,6 @@ export function initialState(): State {
     selectedFiles: [],
     diff: null,
     diffLoading: false,
-    diffMode: (localStorage.getItem("uni-git.diffMode") as DiffMode | null) ?? "side",
     unityPreview: true,
     unity: null,
     unityLoading: false,

@@ -37,12 +37,9 @@ export function mergePlan(mode: MergeMode, c: MergeContext): MergeStep[] {
   if (mode === "main") {
     steps.push({ kind: "merge", args: ["merge", "--no-edit", c.main], label: `merge ${c.main} into ${c.current}` });
   } else if (mode === "force-main") {
-    if (c.current === c.main) {
-      steps.push({ kind: "pull", args: ["pull", "--no-rebase", "--progress", c.remote, c.main], label: `pull ${c.main} from ${c.remote}` });
-    } else {
-      steps.push({ kind: "fetch", args: ["fetch", "--progress", c.remote, `${c.main}:${c.main}`], label: `fetch ${c.remote}/${c.main} into local ${c.main}` });
-      steps.push({ kind: "merge", args: ["merge", "--no-edit", c.main], label: `merge ${c.main} into ${c.current}` });
-    }
+    // not offered on main itself (fetch into the checked-out branch is refused; Pull does that job)
+    steps.push({ kind: "fetch", args: ["fetch", "--progress", c.remote, `${c.main}:${c.main}`], label: `fetch ${c.remote}/${c.main} into local ${c.main}` });
+    steps.push({ kind: "merge", args: ["merge", "--no-edit", c.main], label: `merge ${c.main} into ${c.current}` });
   } else {
     steps.push({ kind: "switch", args: ["switch", c.main], label: `switch to ${c.main}` });
     steps.push({ kind: "pull", args: ["pull", "--no-rebase", "--progress"], label: `pull ${c.main}` });

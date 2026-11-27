@@ -640,6 +640,10 @@ export class Backend {
         openInEditor(requireDir(path), cfg.get().settings.editorCommand);
         return { ok: true };
       },
+      "/os/open-in-file-manager": ({ path }) => {
+        openInFileManager(requireDir(path));
+        return { ok: true };
+      },
 
       "/update/status": () => this.updater.get(),
       "/update/check": () => this.updater.check(),
@@ -744,6 +748,19 @@ export function openInEditor(path: string, command: string | undefined): void {
     if (code !== 0 && process.platform === "darwin" && tpl.startsWith("code")) {
       spawn("open", ["-a", "Visual Studio Code", path], { detached: true, stdio: "ignore" }).unref();
     }
+  });
+  child.unref();
+}
+
+/**
+ * Opens a folder in Explorer / Finder. No shell: the path goes as one argument. explorer.exe exits with 1 even when
+ * the window opened, so the exit code is not checked.
+ */
+export function openInFileManager(path: string): void {
+  const cmd = process.platform === "win32" ? "explorer.exe" : process.platform === "darwin" ? "open" : "xdg-open";
+  const child = spawn(cmd, [path], { detached: true, stdio: "ignore" });
+  child.on("error", () => {
+    /* nothing to report: the window simply does not open */
   });
   child.unref();
 }

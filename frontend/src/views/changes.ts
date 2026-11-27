@@ -64,7 +64,7 @@ export class ChangesView {
       this.desc,
       h(
         "div",
-        { class: "row" },
+        { class: "row actions" },
         h("label", { class: "check" }, this.amend, "Amend last commit"),
         h("span", { style: "flex:1" }),
         this.btnCommitPush,
@@ -126,11 +126,11 @@ export class ChangesView {
     const jobsChanged = changed.has("jobs") && this.jobsKey() !== this.shownJobsKey;
     if (any("status", "collapsedDirs", "repoId", "boot") || jobsChanged) this.renderFiles();
     else if (changed.has("selectedFile") || changed.has("selectedFiles")) this.markSelected();
-    if (any("selectedFile", "diffMode", "unityPreview") || jobsChanged) this.renderDiffHead();
+    if (any("selectedFile", "unityPreview") || jobsChanged) this.renderDiffHead();
     const sel = s.selectedFile;
     const unity = this.app.unityShown(sel?.path);
     const bodyKey = `${sel?.area}:${sel?.kind}:${unity ? `unity:${sel?.path}` : s.diffLoading && !s.diff}`;
-    const bodyInputs: (keyof State)[] = unity ? ["unity", "unityLoading", "unityChoices"] : ["diff", "diffMode"];
+    const bodyInputs: (keyof State)[] = unity ? ["unity", "unityLoading", "unityChoices"] : ["diff"];
     if (any(...bodyInputs) || jobsChanged || bodyKey !== this.shownBodyKey) this.renderDiffBody(bodyKey);
     if (any("status", "jobs", "repoId", "amend", "boot")) this.updateButtons();
     if (changed.has("status")) void this.prefillMergeMessage();
@@ -374,8 +374,6 @@ export class ChangesView {
     const s = app.state;
     const sel = s.selectedFile;
     const busy = app.isBusy();
-    const modeBtn = (label: string, mode: "side" | "inline") =>
-      h("button", { class: cls("btn small", s.diffMode === mode && "on"), onclick: () => app.setDiffMode(mode) }, label);
     const actions: HTMLElement[] = [];
     if (sel && sel.area === "unstaged") actions.push(h("button", { class: "btn small", disabled: busy, onclick: () => app.stage([sel.path]) }, "Stage file"));
     if (sel && sel.area === "staged") actions.push(h("button", { class: "btn small", disabled: busy, onclick: () => app.unstage([sel.path]) }, "Unstage file"));
@@ -383,13 +381,7 @@ export class ChangesView {
     replaceChildren(
       this.elDiffHead,
       h("span", { class: "file", title: sel?.path ?? "" }, sel ? sel.path : "No file selected"),
-      h(
-        "span",
-        { class: "tools" },
-        unity ? unityToggle(app) : null,
-        unity && s.unityPreview ? null : [modeBtn("Side by side", "side"), modeBtn("Inline", "inline")],
-        ...actions,
-      ),
+      h("span", { class: "tools" }, unity ? unityToggle(app) : null, ...actions),
     );
   }
 
@@ -413,7 +405,7 @@ export class ChangesView {
       sel && s.diff && !s.diff.binary && (sel.area === "unstaged" || sel.area === "staged") && (sel.kind === "M" || sel.kind === "T")
         ? { label: sel.area === "unstaged" ? "Stage hunk" : "Unstage hunk", disabled: busy, onClick: (i: number) => app.stageHunk(i, sel.area === "staged") }
         : undefined;
-    replaceChildren(this.elDiff, renderDiff(s.diff, s.diffMode, s.diffLoading, hunkAction));
+    replaceChildren(this.elDiff, renderDiff(s.diff, s.diffLoading, hunkAction));
   }
 
   private updateButtons(): void {

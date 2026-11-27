@@ -40,47 +40,65 @@ export function renderToolbar(app: App): HTMLElement[] {
     if (!vsMain.length) vsMain.push("=");
   }
 
+  const split = (main: HTMLElement, menu: "pull" | "push", title: string) =>
+    h(
+      "span",
+      { class: "split" },
+      main,
+      h(
+        "button",
+        { class: "btn caretbtn", disabled: off, "data-menu-button": menu, title, onclick: () => app.store.set({ openMenu: s.openMenu === menu ? null : menu, contextMenu: null }) },
+        h("span", { class: "caret" }, "▼"),
+      ),
+    );
+
+  // Three clusters that wrap as whole units in a narrow window (style.css, "toolbar"): settings, git operations,
+  // Open + the current branch. Nothing wraps inside a cluster, so buttons neither overlap nor leave the window.
+  const group = (klass: string, ...children: (HTMLElement | null)[]) => h("div", { class: cls("tb-group", klass) }, ...children);
   return [
-    btn("Repositories", { caret: true, disabled: !ready, menu: "repos", onclick: () => app.store.set({ openMenu: s.openMenu === "repos" ? null : "repos", contextMenu: null }) }),
-    // settings write .git/config directly: not while an operation of this repository runs
-    btn("Repo Settings", { disabled: off, title: hasRepo && busy ? "Repository is busy" : undefined, onclick: () => void app.openRepoSettings() }),
-    btn("Global Settings", { disabled: !ready, onclick: () => void app.openGlobalSettings() }),
-    h("span", { class: "gap" }),
-    btn("Fetch", { disabled: off, onclick: () => app.fetch() }),
-    h(
-      "span",
-      { class: "split" },
-      btn("Pull", { disabled: off, onclick: () => app.pull(), count: st?.behind ? `↓${st.behind}` : undefined }),
-      h(
-        "button",
-        { class: "btn caretbtn", disabled: off, "data-menu-button": "pull", title: "Discard changes and pull", onclick: () => app.store.set({ openMenu: s.openMenu === "pull" ? null : "pull", contextMenu: null }) },
-        h("span", { class: "caret" }, "▼"),
-      ),
-    ),
-    h(
-      "span",
-      { class: "split" },
-      btn("Push", { disabled: off, onclick: () => app.push(), count: st?.ahead ? `↑${st.ahead}` : undefined }),
-      h(
-        "button",
-        { class: "btn caretbtn", disabled: off, "data-menu-button": "push", title: "Force push, push tags", onclick: () => app.store.set({ openMenu: s.openMenu === "push" ? null : "push", contextMenu: null }) },
-        h("span", { class: "caret" }, "▼"),
-      ),
-    ),
-    btn("Commit", { primary: true, disabled: off, onclick: () => app.setView("changes") }),
-    btn("Branch", { caret: true, disabled: off, menu: "merge", title: "New branch, merge with main, checks", onclick: () => app.store.set({ openMenu: s.openMenu === "merge" ? null : "merge", contextMenu: null, menuHover: null }) }),
-    h("span", { class: "gap" }),
-    btn("Open in Code", { caret: true, disabled: !hasRepo, menu: "code", onclick: () => app.store.set({ openMenu: s.openMenu === "code" ? null : "code", contextMenu: null }) }),
     h(
       "div",
-      { class: "branch", title: repo?.path ?? "" },
-      !s.connected && ready ? h("span", { class: "ref bad", title: "Backend connection lost, reconnecting…" }, "offline") : null,
-      s.stale && hasRepo ? h("span", { class: "ref", title: "Data may be stale" }, "…") : null,
-      st ? h("span", { class: "ref head" }, "HEAD") : null,
-      h("span", { class: "name" }, hasRepo ? branchName : ready ? "no repository" : ""),
-      taskChip(app, st?.branch ?? null),
-      ab.length ? h("span", { class: "ab", title: st?.upstream ? `vs ${st.upstream}` : "vs upstream" }, ab.join(" ")) : null,
-      vsMain.length && st?.mainBranch ? h("span", { class: "ab main", title: `Relative to ${st.mainBranch}` }, `${vsMain.join(" ")} ${st.mainBranch}`) : null,
+      { class: "tb-clip" },
+      h(
+        "div",
+        { class: "tb-flow" },
+        group(
+          "tb-settings",
+          btn("Repositories", { caret: true, disabled: !ready, menu: "repos", onclick: () => app.store.set({ openMenu: s.openMenu === "repos" ? null : "repos", contextMenu: null }) }),
+          // settings write .git/config directly: not while an operation of this repository runs
+          btn("Repo Settings", { disabled: off, title: hasRepo && busy ? "Repository is busy" : undefined, onclick: () => void app.openRepoSettings() }),
+          btn("Global Settings", { disabled: !ready, onclick: () => void app.openGlobalSettings() }),
+        ),
+        group(
+          "tb-ops",
+          btn("Fetch", { disabled: off, onclick: () => app.fetch() }),
+          split(btn("Pull", { disabled: off, onclick: () => app.pull(), count: st?.behind ? `↓${st.behind}` : undefined }), "pull", "Discard changes and pull"),
+          split(btn("Push", { disabled: off, onclick: () => app.push(), count: st?.ahead ? `↑${st.ahead}` : undefined }), "push", "Force push, push tags"),
+          btn("Commit", { primary: true, disabled: off, onclick: () => app.setView("changes") }),
+          btn("Branch", { caret: true, disabled: off, menu: "merge", title: "New branch, merge with main, checks", onclick: () => app.store.set({ openMenu: s.openMenu === "merge" ? null : "merge", contextMenu: null, menuHover: null }) }),
+        ),
+        group(
+          "tb-right",
+          btn("Open", {
+            caret: true,
+            disabled: !hasRepo,
+            menu: "open",
+            title: `Open the repository or its group folder in ${app.editorName} or ${app.fileManagerName}`,
+            onclick: () => app.store.set({ openMenu: s.openMenu === "open" ? null : "open", contextMenu: null }),
+          }),
+          h(
+            "div",
+            { class: "branch", title: repo?.path ?? "" },
+            !s.connected && ready ? h("span", { class: "ref bad", title: "Backend connection lost, reconnecting…" }, "offline") : null,
+            s.stale && hasRepo ? h("span", { class: "ref", title: "Data may be stale" }, "…") : null,
+            st ? h("span", { class: "ref head" }, "HEAD") : null,
+            h("span", { class: "name" }, hasRepo ? branchName : ready ? "no repository" : ""),
+            taskChip(app, st?.branch ?? null),
+            ab.length ? h("span", { class: "ab", title: st?.upstream ? `vs ${st.upstream}` : "vs upstream" }, ab.join(" ")) : null,
+            vsMain.length && st?.mainBranch ? h("span", { class: "ab main", title: `Relative to ${st.mainBranch}` }, `${vsMain.join(" ")} ${st.mainBranch}`) : null,
+          ),
+        ),
+      ),
     ),
   ];
 }

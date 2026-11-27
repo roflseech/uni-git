@@ -1,6 +1,5 @@
-import type { DiffHunk, DiffLine, FileDiff } from "@uni-git/shared";
+import type { DiffLine, FileDiff } from "@uni-git/shared";
 import { cls, h } from "../dom.js";
-import type { DiffMode } from "../state.js";
 import { langForPath, tokenize, type Lang } from "../highlight.js";
 
 /** Highlighting is skipped for very large diffs to keep rendering instant. */
@@ -8,8 +7,8 @@ const HIGHLIGHT_MAX_LINES = 6000;
 let currentLang: Lang = "text";
 
 /**
- * Read-only diff viewer. Every hunk is one CSS grid whose cells are the line numbers and texts, so the
- * columns stay aligned across lines. Side-by-side pairs deletions with additions; inline lists them in order.
+ * Read-only inline diff viewer. Every hunk is one CSS grid whose cells are the line numbers and texts, so the
+ * columns stay aligned across lines.
  */
 export interface HunkAction {
   label: string;
@@ -17,8 +16,8 @@ export interface HunkAction {
   onClick: (hunkIndex: number) => void;
 }
 
-export function renderDiff(diff: FileDiff | null, mode: DiffMode, loading: boolean, hunkAction?: HunkAction): HTMLElement {
-  const box = h("div", { class: cls("diff", mode === "inline" && "inline") });
+export function renderDiff(diff: FileDiff | null, loading: boolean, hunkAction?: HunkAction): HTMLElement {
+  const box = h("div", { class: "diff" });
   if (loading && !diff) {
     box.append(h("div", { class: "empty" }, "Loading diff…"));
     return box;
@@ -55,8 +54,7 @@ export function renderDiff(diff: FileDiff | null, mode: DiffMode, loading: boole
       ),
     );
     const grid = h("div", { class: "rows" });
-    if (mode === "inline") renderInline(hunk, grid);
-    else renderSide(hunk, grid);
+    for (const l of hunk.lines) grid.append(num(l.o, bgClass(l)), num(l.n, bgClass(l)), text(l));
     box.append(grid);
   }
   if (diff.truncated) box.append(h("div", { class: "hunk" }, "… diff truncated, the file is very large"));
@@ -67,44 +65,13 @@ function num(n: number | undefined, klass?: string): HTMLElement {
   return h("div", { class: cls("n", klass) }, n === undefined ? "" : String(n));
 }
 
-function text(line: DiffLine | undefined): HTMLElement {
-  if (!line) return h("div", { class: "pad" });
+function text(line: DiffLine): HTMLElement {
   const klass = line.t === "add" ? "add" : line.t === "del" ? "del" : "ctx";
   const el = h("div", { class: klass }, ...(currentLang === "text" ? [line.text] : tokenize(line.text, currentLang).map((tk) => (tk.t === "p" ? tk.text : h("span", { class: `tok-${tk.t}` }, tk.text)))));
   if (line.noNewline) el.append(h("span", { class: "nonl", title: "No newline at end of file" }, " ⏎"));
   return el;
 }
 
-function bgClass(line: DiffLine | undefined): string | undefined {
-  if (!line) return "pad";
+function bgClass(line: DiffLine): string | undefined {
   return line.t === "add" ? "add" : line.t === "del" ? "del" : undefined;
-}
-
-function renderInline(hunk: DiffHunk, grid: HTMLElement): void {
-  for (const l of hunk.lines) {
-    grid.append(num(l.o, bgClass(l)), num(l.n, bgClass(l)), text(l));
-  }
-}
-
-function renderSide(hunk: DiffHunk, grid: HTMLElement): void {
-  const lines = hunk.lines;
-  let i = 0;
-  while (i < lines.length) {
-    const l = lines[i]!;
-    if (l.t === "ctx") {
-      grid.append(num(l.o), text(l), num(l.n), text(l));
-      i++;
-      continue;
-    }
-    const dels: DiffLine[] = [];
-    const adds: DiffLine[] = [];
-    while (i < lines.length && lines[i]!.t === "del") dels.push(lines[i++]!);
-    while (i < lines.length && lines[i]!.t === "add") adds.push(lines[i++]!);
-    const rows = Math.max(dels.length, adds.length);
-    for (let r = 0; r < rows; r++) {
-      const d = dels[r];
-      const a = adds[r];
-      grid.append(num(d?.o, bgClass(d)), text(d), num(a?.n, bgClass(a)), text(a));
-    }
-  }
 }

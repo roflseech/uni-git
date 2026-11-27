@@ -9,7 +9,7 @@ import { updateStatusText } from "./updatebar.js";
 let prevDialogKind: string | null = null;
 let freshDialog = false;
 
-/** Everything floating: Repositories / Open in Code menus, context menu, dialogs, job log panel, toasts. */
+/** Everything floating: toolbar menus, context menu, dialogs, job log panel, toasts. */
 export function renderOverlay(app: App): (HTMLElement | null)[] {
   const s = app.state;
   const kind = s.dialog?.kind ?? null;
@@ -17,7 +17,7 @@ export function renderOverlay(app: App): (HTMLElement | null)[] {
   prevDialogKind = kind;
   return [
     s.openMenu === "repos" ? reposMenu(app) : null,
-    s.openMenu === "code" ? codeMenu(app) : null,
+    s.openMenu === "open" ? openMenu(app) : null,
     s.openMenu === "merge" ? mergeMenu(app) : null,
     s.openMenu === "push" ? pushMenu(app) : null,
     s.openMenu === "pull" ? pullMenu(app) : null,
@@ -31,7 +31,7 @@ export function renderOverlay(app: App): (HTMLElement | null)[] {
 function reposMenu(app: App): HTMLElement {
   const s = app.state;
   const cfg = app.configOrEmpty();
-  const menu = h("div", { class: "menu", style: "left:10px;top:48px" });
+  const menu = h("div", { class: "menu", style: menuPlace("repos", 380).style });
 
   const item = (label: string, meta: string | HTMLElement | null, opts: { on?: boolean; led?: "ok" | "busy" | "off"; onclick?: () => void; muted?: boolean; oncontextmenu?: (e: MouseEvent) => void }) =>
     h(
@@ -90,7 +90,7 @@ function reposMenu(app: App): HTMLElement {
           "div",
           { class: "item muted" },
           h("a", { class: "lbl", onclick: () => void app.rescanGroup(g.id) }, "Rescan folder"),
-          h("span", { class: "meta" }, h("a", { onclick: () => app.openInEditor(g.root) }, "Open group in Code")),
+          h("span", { class: "meta" }, "open in ", h("a", { onclick: () => app.openInEditor(g.root) }, app.editorName), " · ", h("a", { onclick: () => app.openInFileManager(g.root) }, app.fileManagerName)),
         ),
       );
     }
@@ -116,7 +116,8 @@ function repoContext(app: App, r: RepoEntry, e: MouseEvent): void {
       x: e.clientX,
       y: e.clientY,
       items: [
-        { label: "Open in Code", onClick: () => app.openInEditor(r.path) },
+        { label: `Open in ${app.editorName}`, onClick: () => app.openInEditor(r.path) },
+        { label: `Open in ${app.fileManagerName}`, onClick: () => app.openInFileManager(r.path) },
         { label: "Remove from list", danger: true, onClick: () => app.removeRepo(r) },
       ],
     },
@@ -134,24 +135,39 @@ function groupContext(app: App, g: Group, e: MouseEvent): void {
   });
 }
 
-function codeMenu(app: App): HTMLElement {
+/**
+ * Open ▼: what gets opened is a heading (kind, name, folder), the apps to open it in are the items under it.
+ * A manual group has no folder, so it only says so.
+ */
+function openMenu(app: App): HTMLElement {
   const repo = app.repo;
   const g = repo ? app.configOrEmpty().groups.find((x) => x.id === repo.groupId) : undefined;
-  const btn = document.querySelector<HTMLElement>('[data-menu-button="code"]');
-  const left = btn ? Math.max(10, Math.round(btn.getBoundingClientRect().left)) : 10;
+  const target = (kind: string, name: string, path: string | null) =>
+    h("div", { class: "target" }, h("div", { class: "kind" }, kind), h("div", { class: "tname", title: name }, name), path ? h("div", { class: "tpath", title: path }, path) : null);
+  const apps = (path: string) => [
+    h("div", { class: "item app", onclick: () => app.openInEditor(path) }, h("span", { class: "lbl" }, "Open in ", h("b", null, app.editorName))),
+    h("div", { class: "item app", onclick: () => app.openInFileManager(path) }, h("span", { class: "lbl" }, "Open in ", h("b", null, app.fileManagerName))),
+  ];
   return h(
     "div",
-    { class: "menu narrow", style: `left:${left}px;top:48px` },
-    repo ? h("div", { class: "item", onclick: () => app.openInEditor(repo.path) }, h("span", { class: "lbl" }, `Open ${repo.name} in Code`)) : null,
-    g && g.kind === "folder"
-      ? h("div", { class: "item", onclick: () => app.openInEditor(g.root) }, h("span", { class: "lbl" }, `Open group ${g.name} in Code`), h("span", { class: "meta" }, g.root))
-      : h("div", { class: "item muted" }, h("span", { class: "lbl" }, "Open group in Code"), h("span", { class: "meta" }, "manual group has no folder")),
+    { class: "menu narrow openwith", style: menuPlace("open", 320).style },
+    repo ? [target("Repository", repo.name, repo.path), ...apps(repo.path)] : h("div", { class: "item muted" }, h("span", { class: "lbl" }, "No repository selected")),
+    g ? h("div", { class: "sep" }) : null,
+    g && g.kind === "folder" ? [target("Group folder", g.name, g.root), ...apps(g.root)] : null,
+    g && g.kind !== "folder" ? [target("Group", g.name, null), h("div", { class: "item muted" }, h("span", { class: "lbl" }, "A manual group has no folder to open"))] : null,
   );
 }
 
-function menuLeft(name: string): number {
+/**
+ * Where a toolbar menu opens: under its button (a split button: under the whole pair), kept inside the window. The
+ * toolbar wraps into rows when the window is narrow, so the position comes from the button, not from a fixed top.
+ */
+function menuPlace(name: string, width: number): { left: number; top: number; style: string } {
   const btn = document.querySelector<HTMLElement>(`[data-menu-button="${name}"]`);
-  return btn ? Math.max(10, Math.round(btn.getBoundingClientRect().left)) : 10;
+  const r = (btn?.closest(".split") ?? btn)?.getBoundingClientRect();
+  const left = Math.max(10, Math.min(Math.round(r?.left ?? 10), window.innerWidth - width - 10));
+  const top = r ? Math.round(r.bottom + 6) : 48;
+  return { left, top, style: `left:${left}px;top:${top}px;max-height:calc(100vh - ${top + 10}px)` };
 }
 
 /** Branch menu (mockup 04, extended): checks and the three merge scenarios; hovering an item previews the git commands. */
@@ -162,7 +178,7 @@ function mergeMenu(app: App): HTMLElement {
   const remote = s.refs?.remotes.includes("origin") ? "origin" : (s.refs?.remotes[0] ?? "origin");
   const stash = s.config?.settings.mergeStash === true;
   const onMain = cur === main;
-  const left = menuLeft("merge");
+  const { left, top, style: menuStyle } = menuPlace("merge", 420);
 
   const t = s.template;
   const previews: Record<string, { title: string; lines: string[] }> = {
@@ -196,7 +212,7 @@ function mergeMenu(app: App): HTMLElement {
   // the preview sits to the right of the menu, or to the left when the window is too narrow for that
   const pvLeft = left + 424 + 440 <= window.innerWidth ? left + 424 : Math.max(10, left - 450);
   const preview = hovered
-    ? h("div", { class: "cmdpreview", style: `left:${pvLeft}px;top:48px` }, h("div", { class: "ttl" }, hovered.title), h("pre", null, hovered.lines.join("\n")))
+    ? h("div", { class: "cmdpreview", style: `left:${pvLeft}px;top:${top}px` }, h("div", { class: "ttl" }, hovered.title), h("pre", null, hovered.lines.join("\n")))
     : null;
 
   return h(
@@ -204,7 +220,7 @@ function mergeMenu(app: App): HTMLElement {
     { class: "menuwrap" },
     h(
       "div",
-      { class: "menu wide", style: `left:${left}px;top:48px`, onmouseleave: () => app.store.set({ menuHover: null }) },
+      { class: "menu wide", style: menuStyle, onmouseleave: () => app.store.set({ menuHover: null }) },
       h("div", { class: "group" }, h("span", null, "Branch"), h("span", { class: "meta" }, "main branch ", bn(main), " · hover an item to see the commands")),
       item("create", ["Create branch…"], () => app.openNewBranch()),
       h("div", { class: "sep" }),
@@ -213,7 +229,7 @@ function mergeMenu(app: App): HTMLElement {
       item("check-commit", ["Is a commit in a branch?"], () => app.openCheckCommit()),
       h("div", { class: "sep" }),
       item("main", ["Merge ", bn(main), " into ", bn(cur)], () => app.mergeScenario("main"), onMainWhy),
-      item("force-main", ["Update ", bn(main), ` from ${remote} and merge into `, bn(cur)], () => app.mergeScenario("force-main")),
+      item("force-main", ["Update ", bn(main), ` from ${remote} and merge into `, bn(cur)], () => app.mergeScenario("force-main"), onMainWhy),
       item("into-main", ["Merge ", bn(cur), " into ", bn(main), " and push"], () => app.mergeScenario("into-main"), onMainWhy),
       h("div", { class: "sep" }),
       h(
@@ -229,7 +245,7 @@ function mergeMenu(app: App): HTMLElement {
 function pullMenu(app: App): HTMLElement {
   return h(
     "div",
-    { class: "menu narrow", style: `left:${menuLeft("pull")}px;top:48px` },
+    { class: "menu narrow", style: menuPlace("pull", 320).style },
     h("div", { class: "item", onclick: () => app.pull() }, h("span", { class: "lbl" }, "Pull")),
     h("div", { class: "sep" }),
     h("div", { class: "item", onclick: () => app.pull(true) }, h("span", { class: "lbl danger" }, "Discard changes and pull…")),
@@ -239,7 +255,7 @@ function pullMenu(app: App): HTMLElement {
 function pushMenu(app: App): HTMLElement {
   return h(
     "div",
-    { class: "menu narrow", style: `left:${menuLeft("push")}px;top:48px` },
+    { class: "menu narrow", style: menuPlace("push", 320).style },
     h("div", { class: "item", onclick: () => app.push() }, h("span", { class: "lbl" }, "Push")),
     h("div", { class: "item", onclick: () => app.push(false, true) }, h("span", { class: "lbl" }, "Push all tags")),
     h("div", { class: "sep" }),
@@ -699,7 +715,7 @@ function dialog(app: App): HTMLElement {
       h("div", { class: "val ro" }, v.gcmVersion ? `Git Credential Manager ${v.gcmVersion} found` : "Git Credential Manager not found: HTTPS logins will ask for a password every time"),
       h("label", null, "Editor command"),
       h("input", { class: "field mono", value: d.editorCommand, placeholder: "code {path}", oninput: (e: Event) => app.updateDialog({ editorCommand: (e.target as HTMLInputElement).value }) }),
-      h("div", { class: "hint" }, "Used by Open in Code for a repository and for a group folder. {path} is replaced by the folder. On macOS without the CLI: open -a \"Visual Studio Code\" is tried."),
+      h("div", { class: "hint" }, "Used by Open ▼ for a repository and for a group folder. {path} is replaced by the folder. On macOS without the CLI: open -a \"Visual Studio Code\" is tried."),
       h("label", null, "UnityYAMLMerge"),
       h(
         "div",

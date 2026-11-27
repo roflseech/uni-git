@@ -104,8 +104,8 @@ export class CommitsView {
     if (any("details", "detailBranches", "selectedSha")) this.renderMeta();
     if (any("details")) this.renderFiles();
     else if (any("detailFile")) this.markFile();
-    if (any("detailFile", "diffMode", "unityPreview")) this.renderDiffHead();
-    if (any("detailDiff", "diffMode", "detailUnity", "unityPreview") || (changed.has("detailFile") && (!this.app.state.detailDiff || this.app.unityShown(this.app.state.detailFile)))) this.renderDiff();
+    if (any("detailFile", "unityPreview")) this.renderDiffHead();
+    if (any("detailDiff", "detailUnity", "unityPreview") || (changed.has("detailFile") && (!this.app.state.detailDiff || this.app.unityShown(this.app.state.detailFile)))) this.renderDiff();
     if (any("details", "detailFile", "detailDiff", "selectedSha")) this.markLoading();
     if (force) {
       this.text.value = this.app.state.commitFilter.text;
@@ -304,14 +304,8 @@ export class CommitsView {
   private renderDiffHead(): void {
     const app = this.app;
     const s = app.state;
-    const modeBtn = (label: string, mode: "side" | "inline") =>
-      h("button", { class: cls("btn small", s.diffMode === mode && "on"), onclick: () => app.setDiffMode(mode) }, label);
     const unity = !!s.detailFile && isUnityYamlPath(s.detailFile);
-    replaceChildren(
-      this.elDiffHead,
-      h("span", { class: "file" }, s.detailFile ?? ""),
-      h("span", { class: "tools" }, unity ? unityToggle(app) : null, unity && s.unityPreview ? null : [modeBtn("Side by side", "side"), modeBtn("Inline", "inline")]),
-    );
+    replaceChildren(this.elDiffHead, h("span", { class: "file" }, s.detailFile ?? ""), h("span", { class: "tools" }, unity ? unityToggle(app) : null));
   }
 
   private renderDiff(): void {
@@ -322,6 +316,6 @@ export class CommitsView {
       replaceChildren(this.elDiff, renderUnity(app, u, !u, {}, { resolvable: false, busy: false }));
       return;
     }
-    replaceChildren(this.elDiff, renderDiff(s.detailDiff, s.diffMode, s.detailFile !== null && s.detailDiff === null));
+    replaceChildren(this.elDiff, renderDiff(s.detailDiff, s.detailFile !== null && s.detailDiff === null));
   }
 }

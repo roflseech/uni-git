@@ -30,8 +30,8 @@ To uninstall, delete the folder above (this removes your uni-git settings too) a
 
 ## What it does
 
-- **Repositories in groups.** A folder group picks up every repository inside a folder (say, all projects in `D:\Work`); a manual group holds repositories from anywhere. Open a repository or a whole group in VS Code.
-- **Changes.** Stage and unstage files, folders or single hunks; side-by-side or inline diff with syntax highlighting; commit, amend, commit & push.
+- **Repositories in groups.** A folder group picks up every repository inside a folder (say, all projects in `D:\Work`); a manual group holds repositories from anywhere. Open a repository or a whole group folder in VS Code or in Explorer / Finder.
+- **Changes.** Stage and unstage files, folders or single hunks; inline diff with syntax highlighting; commit, amend, commit & push.
 - **History.** Commits of any branch without switching to it; filter by text, author or task; see which branches contain a commit.
 - **Branches and merging in one click.** Merge main into your branch, update your branch from the latest remote main, or merge it into main and push, with an optional stash around the operation. The git commands are shown before you run them. "Is this branch merged?" and "Is this commit in that branch?" are answered in place.
 - **Conflicts.** Take ours or theirs per file, then continue or abort.

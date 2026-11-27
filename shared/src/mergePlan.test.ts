@@ -17,10 +17,6 @@ describe("mergePlan", () => {
     ]);
   });
 
-  it("update main while on main pulls instead of fetch+merge", () => {
-    expect(planCommands(mergePlan("force-main", { ...ctx, current: "master" }))).toEqual(["git pull --no-rebase --progress origin master"]);
-  });
-
   it("merge into main pushes at the end", () => {
     expect(planCommands(mergePlan("into-main", ctx))).toEqual([
       "git switch master",

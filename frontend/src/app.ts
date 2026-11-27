@@ -901,11 +901,6 @@ export class App {
     this.store.set({ collapsedDirs: set });
   }
 
-  setDiffMode(mode: "side" | "inline"): void {
-    localStorage.setItem("uni-git.diffMode", mode);
-    this.store.set({ diffMode: mode });
-  }
-
   // ───────────── commits ─────────────
 
   private logSeq = 0;
@@ -1246,6 +1241,23 @@ export class App {
   openInEditor(path: string): void {
     this.store.set({ openMenu: null });
     void this.api?.call("/os/open-in-editor", { path }).catch((e: Error) => this.toast(e.message, "error"));
+  }
+
+  openInFileManager(path: string): void {
+    this.store.set({ openMenu: null });
+    void this.api?.call("/os/open-in-file-manager", { path }).catch((e: Error) => this.toast(e.message, "error"));
+  }
+
+  /** "VS Code" for the default editor command, "Editor" when Global Settings name another one. */
+  get editorName(): string {
+    const cmd = this.configOrEmpty().settings.editorCommand?.trim() ?? "";
+    return !cmd || /^code(\s|$)/.test(cmd) ? "VS Code" : "Editor";
+  }
+
+  /** Explorer on Windows, Finder on macOS (NL_OS is missing when the UI runs in a plain browser). */
+  get fileManagerName(): string {
+    const os = typeof NL_OS === "string" ? NL_OS : navigator.userAgent.includes("Mac") ? "Darwin" : "Windows";
+    return os === "Darwin" ? "Finder" : os === "Windows" ? "Explorer" : "file manager";
   }
 
   // ───────────── jobs, dialogs, toasts ─────────────
